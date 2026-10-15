@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Link from 'next/link';
+import { supabase } from '@/lib/supabase';
 import {
   Code2,
   BookOpen,
@@ -30,7 +31,13 @@ import {
   Flame,
   GraduationCap,
   AlertCircle,
-  Settings
+  Settings,
+  User,
+  LogOut,
+  LogIn,
+  UserPlus,
+  CloudCheck,
+  Save
 } from 'lucide-react';
 
 // --- ТИПЫ ДАННЫХ TYPESCRIPT ---
@@ -90,83 +97,155 @@ export interface TestResult {
   engine: string;
 }
 
-type TabType = 'dashboard' | 'catalog' | 'my-learning' | 'certificates' | 'learn' | 'certificate';
+export interface UserAccount {
+  email: string;
+  display_name: string;
+  avatar: string;
+  bio: string;
+  enrolled_courses: string[];
+  completed_items: string[];
+  user_code_map: Record<string, string>;
+}
+
+type TabType =
+  | 'dashboard'
+  | 'catalog'
+  | 'my-learning'
+  | 'certificates'
+  | 'profile'
+  | 'learn'
+  | 'certificate';
+
+const AVATAR_OPTIONS: string[] = ['👨‍💻', '🚀', '⚡', '🤖', '🦊', '🔥', '💎', '🎓'];
 
 // --- СТАНДАРТНАЯ БАЗА КУРСОВ ---
 
-
 const COURSES_DATA: Course[] = [
   {
-    "id": "cpp-basics",
-    "title": "C++: С нуля до первого проекта",
-    "language": "C++",
-    "langKey": "cpp",
-    "level": "Начинающий",
-    "duration": "14 часов",
-    "accent": "from-blue-600 to-cyan-500",
-    "badgeBg": "bg-blue-500/15 text-blue-400 border-blue-500/30",
-    "description": "Фундаментальный практический курс по современному C++ (C++17/20). Потоки ввода-вывода, управление памятью, динамические массивы std::vector и алгоритмические задачи.",
-    "skills": [
-      "Синтаксис C++17",
-      "Потоки iostream",
-      "std::vector",
-      "Алгоритмы"
-    ],
-    "modules": [
+    id: 'cpp-basics',
+    title: 'C++: С нуля до первого проекта',
+    language: 'C++',
+    langKey: 'cpp',
+    level: 'Начинающий',
+    duration: '14 часов',
+    accent: 'from-blue-600 to-cyan-500',
+    badgeBg: 'bg-blue-500/15 text-blue-400 border-blue-500/30',
+    description:
+      'Фундаментальный практический курс по современному C++ (C++17/20). Потоки ввода-вывода, управление памятью, динамические массивы std::vector и алгоритмические задачи.',
+    skills: ['Синтаксис C++17', 'Потоки iostream', 'std::vector', 'Алгоритмы'],
+    modules: [
       {
-        "id": "cpp-mod-1",
-        "title": "Модуль 1. Основы синтаксиса C++",
-        "items": [
+        id: 'cpp-mod-1',
+        title: 'Модуль 1. Основы синтаксиса C++',
+        items: [
           {
-            "id": "cpp-1-theory",
-            "title": "Структура программы, iostream и переменные",
-            "type": "theory",
-            "content": "# Введение в современный C++\n\nКаждая программа на C++ начинается с функции `main()`.\n\n```cpp\n#include <iostream>\n\nint main() {\n    std::cout << \"Привет, мир C++!\" << std::endl;\n    return 0;\n}\n```"
+            id: 'cpp-1-theory',
+            title: 'Структура программы, iostream и переменные',
+            type: 'theory',
+            content: `# Введение в современный C++
+
+Язык **C++** — это компилируемый, строго типизированный язык программирования общего назначения.
+
+### 1. Минимальная структура программы
+
+Каждая программа на C++ начинается с функции \`main()\`. Для работы со стандартным вводом и выводом подключается \`<iostream>\`:
+
+\`\`\`cpp
+#include <iostream>
+
+int main() {
+    std::cout << "Привет, мир C++!" << std::endl;
+    return 0;
+}
+\`\`\`
+
+### 2. Ввод и вывод данных (std::cin и std::cout)
+
+\`\`\`cpp
+#include <iostream>
+
+int main() {
+    int a, b;
+    std::cin >> a >> b;
+    std::cout << "Сумма: " << (a + b) << "\\n";
+    return 0;
+}
+\`\`\`
+
+> **Совет:** Используйте \`"\\n"\` вместо \`std::endl\`, чтобы ускорить вывод данных.`
           },
           {
-            "id": "cpp-1-task-1",
-            "title": "Задача: Сумма двух чисел",
-            "type": "task",
-            "content": "# Задача: Сумма двух чисел\n\nСчитайте два целых числа $A$ и $B$ из `std::cin` и выведите их сумму.",
-            "initialCode": "#include <iostream>\n\nint main() {\n    int a, b;\n    // Ваш код здесь\n    return 0;\n}",
-            "solution": "#include <iostream>\n\nint main() {\n    int a, b;\n    if (std::cin >> a >> b) std::cout << (a + b) << \"\\n\";\n    return 0;\n}",
-            "tests": [
-              {
-                "input": "2 3",
-                "expected": "5"
-              },
-              {
-                "input": "10 -4",
-                "expected": "6"
-              }
+            id: 'cpp-1-task-1',
+            title: 'Задача: Сумма двух чисел',
+            type: 'task',
+            content: `# Задача: Сумма двух чисел
+
+Напишите программу на **C++**, которая считывает из \`std::cin\` два целых числа $A$ и $B$, а затем выводит их сумму в \`std::cout\`.`,
+            initialCode: `#include <iostream>\n\nint main() {\n    int a, b;\n    // Считайте числа a и b и выведите их сумму\n    \n    return 0;\n}`,
+            solution: `#include <iostream>\n\nint main() {\n    int a, b;\n    if (std::cin >> a >> b) {\n        std::cout << (a + b) << "\\n";\n    }\n    return 0;\n}`,
+            tests: [
+              { input: '2 3', expected: '5' },
+              { input: '10 -4', expected: '6' },
+              { input: '100 250', expected: '350' }
             ]
           },
           {
-            "id": "item-91941",
-            "title": "Новая задача (Практика)",
-            "type": "task",
-            "content": "# Условие задачи\n\nОпишите, что должна делать программа и какие данные подаются на вход.",
-            "initialCode": "#include <iostream>\n\nint main() {\n    // Напишите ваш код здесь\n    return 0;\n}",
-            "solution": "#include <iostream>\n\nint main() {\n    std::cout << \"OK\\n\";\n    return 0;\n}",
-            "tests": [
-              {
-                "input": "1",
-                "expected": "OK"
-              }
+            id: 'cpp-1-task-2',
+            title: 'Задача: Чётное или нечётное',
+            type: 'task',
+            content: `# Задача: Чётное или нечётное
+
+Дано одно целое число $N$. Если число делится на 2 без остатка (\`n % 2 == 0\`), выведите \`EVEN\`, иначе \`ODD\`.`,
+            initialCode: `#include <iostream>\n\nint main() {\n    int n;\n    std::cin >> n;\n    // Напишите проверку чётности ниже:\n    \n    return 0;\n}`,
+            solution: `#include <iostream>\n\nint main() {\n    int n;\n    if (std::cin >> n) {\n        if (n % 2 == 0) std::cout << "EVEN\\n";\n        else std::cout << "ODD\\n";\n    }\n    return 0;\n}`,
+            tests: [
+              { input: '4', expected: 'EVEN' },
+              { input: '7', expected: 'ODD' },
+              { input: '0', expected: 'EVEN' }
             ]
+          }
+        ]
+      },
+      {
+        id: 'cpp-mod-2',
+        title: 'Модуль 2. Массивы, std::vector и матрицы',
+        items: [
+          {
+            id: 'cpp-2-theory',
+            title: 'Динамические массивы std::vector',
+            type: 'theory',
+            content: `# Массивы и std::vector в C++
+
+В современном C++ вместо сырых массивов используется динамический контейнер \`std::vector\` из библиотеки \`<vector>\`.
+
+\`\`\`cpp
+#include <iostream>
+#include <vector>
+
+int main() {
+    std::vector<int> nums = {10, 20, 30};
+    nums.push_back(40);
+
+    for (size_t i = 0; i < nums.size(); ++i) {
+        std::cout << nums[i] << " ";
+    }
+    return 0;
+}
+\`\`\``
           },
           {
-            "id": "item-95565",
-            "title": "Новый урок (Теория)",
-            "type": "theory",
-            "content": "# Заголовок урока\n\nТекст урока с поддержкой **Markdown** и блоков кода.",
-            "initialCode": "// Код по умолчанию\n",
-            "solution": "// Решение\n",
-            "tests": [
-              {
-                "input": "1",
-                "expected": "1"
-              }
+            id: 'cpp-2-task-1',
+            title: 'Задача: Максимум в массиве',
+            type: 'task',
+            content: `# Задача: Максимум в массиве
+
+В первой строке вводится число $N$, во второй — $N$ целых чисел. Выведите максимальный элемент массива.`,
+            initialCode: `#include <iostream>\n#include <vector>\n\nint main() {\n    int n;\n    if (!(std::cin >> n)) return 0;\n    std::vector<int> a(n);\n    for (int i = 0; i < n; ++i) std::cin >> a[i];\n    \n    // Найдите и выведите максимум:\n    \n    return 0;\n}`,
+            solution: `#include <iostream>\n#include <vector>\n\nint main() {\n    int n;\n    if (!(std::cin >> n)) return 0;\n    std::vector<int> a(n);\n    for (int i = 0; i < n; ++i) std::cin >> a[i];\n    int max_val = a[0];\n    for (int i = 1; i < n; ++i) {\n        if (a[i] > max_val) max_val = a[i];\n    }\n    std::cout << max_val << "\\n";\n    return 0;\n}`,
+            tests: [
+              { input: '5\n1 9 3 7 2', expected: '9' },
+              { input: '3\n-5 -2 -10', expected: '-2' },
+              { input: '4\n42 42 10 0', expected: '42' }
             ]
           }
         ]
@@ -174,48 +253,93 @@ const COURSES_DATA: Course[] = [
     ]
   },
   {
-    "id": "python-basics",
-    "title": "Python: Основы, алгоритмы и скрипты",
-    "language": "Python",
-    "langKey": "python",
-    "level": "Начинающий",
-    "duration": "12 часов",
-    "accent": "from-amber-500 to-yellow-400",
-    "badgeBg": "bg-amber-500/15 text-amber-300 border-amber-500/30",
-    "description": "Практический старт в Python 3: чистый синтаксис, динамическая типизация, f-строки, списки и написание функций.",
-    "skills": [
-      "Python 3",
-      "f-строки",
-      "Списки (Lists)",
-      "Функции"
-    ],
-    "modules": [
+    id: 'python-basics',
+    title: 'Python: Основы, алгоритмы и скрипты',
+    language: 'Python',
+    langKey: 'python',
+    level: 'Начинающий',
+    duration: '12 часов',
+    accent: 'from-amber-500 to-yellow-400',
+    badgeBg: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+    description:
+      'Практический старт в Python 3: чистый синтаксис, динамическая типизация, f-строки, списковые включения и написание функций.',
+    skills: ['Python 3', 'f-строки', 'Списки (Lists)', 'Функции'],
+    modules: [
       {
-        "id": "py-mod-1",
-        "title": "Модуль 1. Быстрый старт в Python",
-        "items": [
+        id: 'py-mod-1',
+        title: 'Модуль 1. Быстрый старт в Python',
+        items: [
           {
-            "id": "py-1-theory",
-            "title": "Переменные, f-строки и условия",
-            "type": "theory",
-            "content": "# Основы языка Python\n\nВ Python блоки кода выделяются отступами.\n\n```python\nname = \"Кирилл\"\nprint(f\"Привет, {name}!\")\n```"
+            id: 'py-1-theory',
+            title: 'Переменные, f-строки и условия',
+            type: 'theory',
+            content: `# Основы языка Python
+
+\`\`\`python
+name = "Кирилл"
+age = 18
+print(f"Привет, я {name}, мне {age} лет.")
+\`\`\``
           },
           {
-            "id": "py-1-task-1",
-            "title": "Задача: Приветствие разработчика",
-            "type": "task",
-            "content": "# Задача: Приветствие разработчика\n\nСчитайте имя через `input()` и выведите `Привет, <имя>!`.",
-            "initialCode": "name = input()\n# Выведите приветствие:\n",
-            "solution": "name = input().strip()\nprint(f\"Привет, {name}!\")",
-            "tests": [
-              {
-                "input": "Кирилл",
-                "expected": "Привет, Кирилл!"
-              },
-              {
-                "input": "Анна",
-                "expected": "Привет, Анна!"
-              }
+            id: 'py-1-task-1',
+            title: 'Задача: Приветствие разработчика',
+            type: 'task',
+            content: `# Задача: Приветствие разработчика
+
+Считайте имя пользователя через \`input()\` и выведите: \`Привет, <имя>!\``,
+            initialCode: `name = input()\n# Выведите приветствие:\n`,
+            solution: `name = input().strip()\nprint(f"Привет, {name}!")`,
+            tests: [
+              { input: 'Кирилл', expected: 'Привет, Кирилл!' },
+              { input: 'Алексей', expected: 'Привет, Алексей!' }
+            ]
+          },
+          {
+            id: 'py-1-task-2',
+            title: 'Задача: Квадрат числа',
+            type: 'task',
+            content: `# Задача: Квадрат числа
+
+На вход подаётся одно целое число $N$. Выведите квадрат этого числа ($N^2$).`,
+            initialCode: `n = int(input())\n# Выведите квадрат числа n:\n`,
+            solution: `n = int(input())\nprint(n ** 2)`,
+            tests: [
+              { input: '5', expected: '25' },
+              { input: '12', expected: '144' },
+              { input: '-3', expected: '9' }
+            ]
+          }
+        ]
+      },
+      {
+        id: 'py-mod-2',
+        title: 'Модуль 2. Циклы и списки',
+        items: [
+          {
+            id: 'py-2-theory',
+            title: 'Цикл for и функция range()',
+            type: 'theory',
+            content: `# Циклы и списки в Python
+
+\`\`\`python
+squares = [x ** 2 for x in range(10) if x % 2 == 0]
+print(squares)
+\`\`\``
+          },
+          {
+            id: 'py-2-task-1',
+            title: 'Задача: Сумма чётных чисел до N',
+            type: 'task',
+            content: `# Задача: Сумма чётных чисел до N
+
+Вычислите и выведите сумму всех чётных чисел от $1$ до $N$ включительно.`,
+            initialCode: `n = int(input())\ntotal = 0\n\nprint(total)`,
+            solution: `n = int(input())\ntotal = sum(i for i in range(1, n + 1) if i % 2 == 0)\nprint(total)`,
+            tests: [
+              { input: '6', expected: '12' },
+              { input: '10', expected: '30' },
+              { input: '1', expected: '0' }
             ]
           }
         ]
@@ -223,33 +347,6 @@ const COURSES_DATA: Course[] = [
     ]
   }
 ];
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // --- ДВИЖОК ВЫПОЛНЕНИЯ И ТЕСТИРОВАНИЯ КОДА ---
 
@@ -302,7 +399,7 @@ async function executeSingleRun(
       }
     }
   } catch {
-    // При отсутствии сети переходим на локальный симулятор
+    // Fallback на локальный симулятор
   }
 
   return simulateLocalExecution(langKey, cleanCode, stdinInput, taskId, expectedOutput, referenceSolution);
@@ -402,7 +499,6 @@ function simulateLocalExecution(
     return { stdout: '0', stderr: '', engine: 'Local Sandbox' };
   }
 
-  // Поддержка кастомных задач, созданных в Админ-панели
   if (referenceSolution) {
     const normalize = (s: string) => s.replace(/\s+/g, '');
     if (normalize(stripped) === normalize(referenceSolution)) {
@@ -708,18 +804,6 @@ function CertificateView({ course, studentName, setStudentName, isCompleted, onB
         ctx.fillStyle = bgGrad;
         ctx.fillRect(0, 0, 2000, 1414);
 
-        const orb1 = ctx.createRadialGradient(300, 250, 20, 300, 250, 550);
-        orb1.addColorStop(0, 'rgba(59, 130, 246, 0.22)');
-        orb1.addColorStop(1, 'rgba(59, 130, 246, 0)');
-        ctx.fillStyle = orb1;
-        ctx.fillRect(0, 0, 2000, 1414);
-
-        const orb2 = ctx.createRadialGradient(1700, 1150, 20, 1700, 1150, 550);
-        orb2.addColorStop(0, 'rgba(16, 185, 129, 0.18)');
-        orb2.addColorStop(1, 'rgba(16, 185, 129, 0)');
-        ctx.fillStyle = orb2;
-        ctx.fillRect(0, 0, 2000, 1414);
-
         ctx.strokeStyle = '#3b82f6';
         ctx.lineWidth = 6;
         ctx.strokeRect(70, 70, 1860, 1274);
@@ -727,19 +811,6 @@ function CertificateView({ course, studentName, setStudentName, isCompleted, onB
         ctx.strokeStyle = '#eab308';
         ctx.lineWidth = 2;
         ctx.strokeRect(92, 92, 1816, 1230);
-
-        const corners: Array<[number, number]> = [
-          [70, 70],
-          [1930, 70],
-          [70, 1344],
-          [1930, 1344]
-        ];
-        ctx.fillStyle = '#eab308';
-        corners.forEach(([cx, cy]) => {
-          ctx.beginPath();
-          ctx.arc(cx, cy, 10, 0, Math.PI * 2);
-          ctx.fill();
-        });
 
         ctx.textAlign = 'center';
         ctx.fillStyle = '#60a5fa';
@@ -777,22 +848,6 @@ function CertificateView({ course, studentName, setStudentName, isCompleted, onB
         ctx.fillStyle = '#94a3b8';
         ctx.font = '28px sans-serif';
         ctx.fillText(`Язык программирования: ${course.language} • Уровень: ${course.level} • Выполнено 100% задач`, 1000, 890);
-
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(1000, 1110, 85, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(234, 179, 8, 0.12)';
-        ctx.fill();
-        ctx.lineWidth = 4;
-        ctx.strokeStyle = '#eab308';
-        ctx.stroke();
-
-        ctx.fillStyle = '#fbbf24';
-        ctx.font = 'bold 24px sans-serif';
-        ctx.fillText('VERIFIED', 1000, 1105);
-        ctx.font = '20px sans-serif';
-        ctx.fillText('100% PASSED', 1000, 1135);
-        ctx.restore();
 
         ctx.textAlign = 'left';
         ctx.fillStyle = '#94a3b8';
@@ -936,6 +991,18 @@ export default function App() {
   const [userCodeMap, setUserCodeMap] = useState<Record<string, string>>({});
   const [studentName, setStudentName] = useState<string>('Кирилл Разработчик');
 
+  // --- СОСТОЯНИЕ АККАУНТА И ЛИЧНОГО КАБИНЕТА ---
+  const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
+  const [userAvatar, setUserAvatar] = useState<string>('👨‍💻');
+  const [userBio, setUserBio] = useState<string>('Изучаю C++ и Python на платформе DevCourses');
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [authEmail, setAuthEmail] = useState<string>('');
+  const [authPassword, setAuthPassword] = useState<string>('');
+  const [authName, setAuthName] = useState<string>('');
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authLoading, setAuthLoading] = useState<boolean>(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
+
   const [openModules, setOpenModules] = useState<Record<string, boolean>>({
     'cpp-mod-1': true,
     'cpp-mod-2': true,
@@ -947,34 +1014,85 @@ export default function App() {
   const [testResults, setTestResults] = useState<TestResult[] | null>(null);
   const [isRunningTests, setIsRunningTests] = useState<boolean>(false);
 
-  // Асинхронная гидратация из LocalStorage (синхронизировано с /admin)
+  // Загрузка курсов и сессии пользователя при старте
   useEffect(() => {
-    queueMicrotask(() => {
+    let isMounted = true;
+
+    async function initPlatform() {
       try {
         const savedEnrolled = localStorage.getItem('dc_enrolled');
         const savedCompleted = localStorage.getItem('dc_completed');
         const savedCode = localStorage.getItem('dc_code_map');
         const savedName = localStorage.getItem('dc_student_name');
+        const savedAvatar = localStorage.getItem('dc_user_avatar');
+        const savedBio = localStorage.getItem('dc_user_bio');
+        const savedSessionEmail = localStorage.getItem('dc_session_email');
         const savedCustomCourses = localStorage.getItem('dc_custom_courses');
 
-        if (savedCustomCourses) {
+        if (savedCustomCourses && isMounted) {
           const parsed: Course[] = JSON.parse(savedCustomCourses);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            setCoursesList(parsed);
+          if (Array.isArray(parsed) && parsed.length > 0) setCoursesList(parsed);
+        }
+        if (savedEnrolled && isMounted) setEnrolledCourses(JSON.parse(savedEnrolled));
+        if (savedCompleted && isMounted) setCompletedItems(JSON.parse(savedCompleted));
+        if (savedCode && isMounted) setUserCodeMap(JSON.parse(savedCode));
+        if (savedName && isMounted) setStudentName(savedName);
+        if (savedAvatar && isMounted) setUserAvatar(savedAvatar);
+        if (savedBio && isMounted) setUserBio(savedBio);
+
+        // Подгрузка курсов из облака Supabase
+        const { data: coursesData } = await supabase
+          .from('courses')
+          .select('data')
+          .order('created_at', { ascending: true });
+
+        if (coursesData && coursesData.length > 0 && isMounted) {
+          const cloudCourses = coursesData.map((row: { data: Course }) => row.data);
+          setCoursesList(cloudCourses);
+          localStorage.setItem('dc_custom_courses', JSON.stringify(cloudCourses));
+        }
+
+        // Если пользователь уже входил в аккаунт — подгружаем его профиль из Supabase
+        if (savedSessionEmail && isMounted) {
+          const { data: accData } = await supabase
+            .from('user_accounts')
+            .select('*')
+            .eq('email', savedSessionEmail)
+            .single();
+
+          if (accData && isMounted) {
+            const account: UserAccount = {
+              email: accData.email,
+              display_name: accData.display_name,
+              avatar: accData.avatar || '👨‍💻',
+              bio: accData.bio || '',
+              enrolled_courses: Array.isArray(accData.enrolled_courses) ? accData.enrolled_courses : ['cpp-basics'],
+              completed_items: Array.isArray(accData.completed_items) ? accData.completed_items : [],
+              user_code_map: accData.user_code_map || {}
+            };
+            setCurrentUser(account);
+            setStudentName(account.display_name);
+            setUserAvatar(account.avatar);
+            setUserBio(account.bio);
+            setEnrolledCourses(account.enrolled_courses);
+            setCompletedItems(account.completed_items);
+            setUserCodeMap(account.user_code_map);
           }
         }
-        if (savedEnrolled) setEnrolledCourses(JSON.parse(savedEnrolled));
-        if (savedCompleted) setCompletedItems(JSON.parse(savedCompleted));
-        if (savedCode) setUserCodeMap(JSON.parse(savedCode));
-        if (savedName) setStudentName(savedName);
       } catch {
-        // Игнорируем ошибки доступа к localStorage
+        // Работаем на локальном кэше
       } finally {
-        setIsHydrated(true);
+        if (isMounted) setIsHydrated(true);
       }
-    });
+    }
+
+    initPlatform();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
+  // Автоматическое сохранение в LocalStorage и синхронизация с облачным аккаунтом Supabase
   useEffect(() => {
     if (!isHydrated) return;
     try {
@@ -982,10 +1100,178 @@ export default function App() {
       localStorage.setItem('dc_completed', JSON.stringify(completedItems));
       localStorage.setItem('dc_code_map', JSON.stringify(userCodeMap));
       localStorage.setItem('dc_student_name', studentName);
+      localStorage.setItem('dc_user_avatar', userAvatar);
+      localStorage.setItem('dc_user_bio', userBio);
     } catch {
-      // Игнорируем ошибки переполнения квоты
+      // Игнорируем переполнение
     }
-  }, [enrolledCourses, completedItems, userCodeMap, studentName, isHydrated]);
+
+    if (currentUser) {
+      const timer = setTimeout(async () => {
+        try {
+          await supabase
+            .from('user_accounts')
+            .update({
+              display_name: studentName,
+              avatar: userAvatar,
+              bio: userBio,
+              enrolled_courses: enrolledCourses,
+              completed_items: completedItems,
+              user_code_map: userCodeMap,
+              updated_at: new Date().toISOString()
+            })
+            .eq('email', currentUser.email);
+        } catch {
+          // Игнорируем ошибку фоновой синхронизации
+        }
+      }, 800);
+      return () => clearTimeout(timer);
+    }
+  }, [enrolledCourses, completedItems, userCodeMap, studentName, userAvatar, userBio, currentUser, isHydrated]);
+
+  // --- ФУНКЦИИ РЕГИСТРАЦИИ И ВХОДА В АККАУНТ ---
+
+  const handleAuthSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError(null);
+
+    const cleanEmail = authEmail.trim().toLowerCase();
+    const cleanPass = authPassword.trim();
+    const cleanName = authName.trim() || 'Студент DevCourses';
+
+    if (!cleanEmail || !cleanPass) {
+      setAuthError('Пожалуйста, введите Email и пароль.');
+      return;
+    }
+
+    setAuthLoading(true);
+    try {
+      if (authMode === 'register') {
+        const { data: existing } = await supabase
+          .from('user_accounts')
+          .select('email')
+          .eq('email', cleanEmail)
+          .maybeSingle();
+
+        if (existing) {
+          setAuthError('Аккаунт с таким Email уже существует. Переключитесь на вкладку «Вход».');
+          setAuthLoading(false);
+          return;
+        }
+
+        const newAccount = {
+          email: cleanEmail,
+          password: cleanPass,
+          display_name: cleanName,
+          avatar: userAvatar,
+          bio: userBio,
+          enrolled_courses: enrolledCourses,
+          completed_items: completedItems,
+          user_code_map: userCodeMap
+        };
+
+        const { error: insertError } = await supabase.from('user_accounts').insert([newAccount]);
+
+        if (insertError) {
+          setAuthError(`Ошибка создания аккаунта: ${insertError.message}`);
+          setAuthLoading(false);
+          return;
+        }
+
+        setCurrentUser(newAccount);
+        setStudentName(cleanName);
+        localStorage.setItem('dc_session_email', cleanEmail);
+        setSyncMessage('Аккаунт создан и синхронизирован с облаком! 🎉');
+        setTimeout(() => setSyncMessage(null), 4000);
+      } else {
+        const { data: foundUser, error: selectErr } = await supabase
+          .from('user_accounts')
+          .select('*')
+          .eq('email', cleanEmail)
+          .eq('password', cleanPass)
+          .maybeSingle();
+
+        if (selectErr || !foundUser) {
+          setAuthError('Неверный Email или пароль.');
+          setAuthLoading(false);
+          return;
+        }
+
+        const loadedAcc: UserAccount = {
+          email: foundUser.email,
+          display_name: foundUser.display_name,
+          avatar: foundUser.avatar || '👨‍💻',
+          bio: foundUser.bio || '',
+          enrolled_courses: Array.isArray(foundUser.enrolled_courses) ? foundUser.enrolled_courses : ['cpp-basics'],
+          completed_items: Array.isArray(foundUser.completed_items) ? foundUser.completed_items : [],
+          user_code_map: foundUser.user_code_map || {}
+        };
+
+        setCurrentUser(loadedAcc);
+        setStudentName(loadedAcc.display_name);
+        setUserAvatar(loadedAcc.avatar);
+        setUserBio(loadedAcc.bio);
+        setEnrolledCourses(loadedAcc.enrolled_courses);
+        setCompletedItems(loadedAcc.completed_items);
+        setUserCodeMap(loadedAcc.user_code_map);
+        localStorage.setItem('dc_session_email', cleanEmail);
+        setSyncMessage('Вы успешно вошли! Весь ваш прогресс загружен из облака ☁️');
+        setTimeout(() => setSyncMessage(null), 4000);
+      }
+      setAuthPassword('');
+    } catch {
+      setAuthError('Не удалось подключиться к базе данных Supabase.');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    localStorage.removeItem('dc_session_email');
+    setSyncMessage('Вы вышли из аккаунта.');
+    setTimeout(() => setSyncMessage(null), 3000);
+  };
+
+  const handleManualProfileSave = async () => {
+    if (!currentUser) {
+      setSyncMessage('Профиль сохранён локально в браузере ✅');
+      setTimeout(() => setSyncMessage(null), 3000);
+      return;
+    }
+
+    setAuthLoading(true);
+    try {
+      await supabase
+        .from('user_accounts')
+        .update({
+          display_name: studentName,
+          avatar: userAvatar,
+          bio: userBio,
+          enrolled_courses: enrolledCourses,
+          completed_items: completedItems,
+          user_code_map: userCodeMap,
+          updated_at: new Date().toISOString()
+        })
+        .eq('email', currentUser.email);
+
+      setSyncMessage('Данные профиля и прогресс сохранены в облаке Supabase! ☁️✅');
+      setTimeout(() => setSyncMessage(null), 3500);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  // --- РАСЧЁТ РАНГА И XP ---
+
+  const totalXp = completedItems.length * 50;
+  const userRank = useMemo(() => {
+    if (totalXp >= 400) return { title: 'Senior Архитектор', nextXp: 600, color: 'text-amber-400 border-amber-500/40 bg-amber-500/15' };
+    if (totalXp >= 250) return { title: 'Middle Разработчик', nextXp: 400, color: 'text-purple-400 border-purple-500/40 bg-purple-500/15' };
+    if (totalXp >= 100) return { title: 'Junior Разработчик', nextXp: 250, color: 'text-emerald-400 border-emerald-500/40 bg-emerald-500/15' };
+    if (totalXp >= 50) return { title: 'Стажёр (Intern)', nextXp: 100, color: 'text-cyan-400 border-cyan-500/40 bg-cyan-500/15' };
+    return { title: 'Новичок', nextXp: 50, color: 'text-slate-300 border-slate-700 bg-slate-800' };
+  }, [totalXp]);
 
   const currentCourse = useMemo<Course>(
     () => coursesList.find((c) => c.id === selectedCourseId) || coursesList[0] || COURSES_DATA[0],
@@ -1112,14 +1398,15 @@ export default function App() {
     { id: 'dashboard', label: 'Дашборд' },
     { id: 'catalog', label: 'Магазин курсов' },
     { id: 'my-learning', label: 'Моё обучение' },
-    { id: 'certificates', label: 'Сертификаты' }
+    { id: 'certificates', label: 'Сертификаты' },
+    { id: 'profile', label: 'Личный кабинет' }
   ];
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 flex flex-col selection:bg-blue-500 selection:text-white">
-      <header className="sticky top-0 z-50 bg-slate-950/80 backdrop-blur-md border-b border-slate-800/90">
+      <header className="sticky top-0 z-50 bg-slate-950/85 backdrop-blur-md border-b border-slate-800/90">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-5">
             <button
               onClick={() => setActiveTab('dashboard')}
               className="flex items-center gap-2.5 text-left group cursor-pointer"
@@ -1129,11 +1416,11 @@ export default function App() {
               </div>
               <div>
                 <span className="font-bold text-lg tracking-tight text-white block leading-none">DevCourses</span>
-                <span className="text-[11px] text-slate-400 font-mono">Interactive IDE • SSG</span>
+                <span className="text-[11px] text-slate-400 font-mono">Cloud IDE • Supabase</span>
               </div>
             </button>
 
-            <nav className="hidden md:flex items-center gap-1">
+            <nav className="hidden lg:flex items-center gap-1">
               {navItems.map((nav) => (
                 <button
                   key={nav.id}
@@ -1151,18 +1438,30 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-2.5">
-            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-xs">
+            <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-xs">
               <Flame className="w-4 h-4 text-amber-400" />
-              <span className="text-slate-400">Пройдено шагов:</span>
-              <span className="font-bold text-white">{completedItems.length}</span>
+              <span className="font-bold text-amber-300">{totalXp} XP</span>
             </div>
 
             <button
               onClick={handleDemoUnlockAll}
-              className="px-3 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer"
+              className="hidden md:flex px-3 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-medium transition-colors items-center gap-1.5 cursor-pointer"
             >
               <Unlock className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Демо: Открыть всё</span>
+              <span>Демо</span>
+            </button>
+
+            {/* Кнопка Личного кабинета / Аккаунта */}
+            <button
+              onClick={() => setActiveTab('profile')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all flex items-center gap-2 cursor-pointer ${
+                currentUser
+                  ? 'bg-blue-600/15 border-blue-500/40 text-blue-200 hover:bg-blue-600/25'
+                  : 'bg-slate-900 border-slate-700 text-slate-200 hover:bg-slate-800'
+              }`}
+            >
+              <span className="text-base leading-none">{userAvatar}</span>
+              <span className="max-w-[110px] truncate">{currentUser ? studentName : 'Кабинет / Вход'}</span>
             </button>
 
             <Link
@@ -1170,13 +1469,314 @@ export default function App() {
               className="px-3 py-1.5 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/30 text-xs font-semibold transition-colors flex items-center gap-1.5"
             >
               <Settings className="w-3.5 h-3.5" />
-              <span>Админ-панель</span>
+              <span className="hidden sm:inline">Админка</span>
             </Link>
           </div>
         </div>
       </header>
 
       <main className="flex-1 flex flex-col">
+        {/* РАЗДЕЛ: ЛИЧНЫЙ КАБИНЕТ И АВТОРИЗАЦИЯ */}
+        {activeTab === 'profile' && (
+          <div className="max-w-6xl w-full mx-auto px-4 sm:px-6 py-8 space-y-8">
+            {syncMessage && (
+              <div className="p-4 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-sm font-medium flex items-center gap-2">
+                <CheckCircle2 className="w-5 h-5 flex-shrink-0" />
+                <span>{syncMessage}</span>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+              {/* Левая колонка: Вход / Регистрация или Карточка Аккаунта */}
+              <div className="lg:col-span-5 space-y-6">
+                {!currentUser ? (
+                  <div className="p-6 sm:p-8 rounded-3xl bg-slate-900/90 border border-slate-800 shadow-2xl space-y-6">
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+                      <div>
+                        <span className="text-xs font-bold uppercase tracking-wider text-blue-400">
+                          Облачный аккаунт Supabase
+                        </span>
+                        <h2 className="text-2xl font-bold text-white mt-1">
+                          {authMode === 'login' ? 'Вход в личный кабинет' : 'Регистрация ученика'}
+                        </h2>
+                      </div>
+                      <User className="w-8 h-8 text-blue-400" />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-slate-950 border border-slate-800">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAuthMode('login');
+                          setAuthError(null);
+                        }}
+                        className={`py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${
+                          authMode === 'login' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        <LogIn className="w-3.5 h-3.5" /> Вход
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAuthMode('register');
+                          setAuthError(null);
+                        }}
+                        className={`py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${
+                          authMode === 'register' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        <UserPlus className="w-3.5 h-3.5" /> Регистрация
+                      </button>
+                    </div>
+
+                    {authError && (
+                      <div className="p-3 rounded-xl bg-rose-950/50 border border-rose-500/40 text-rose-200 text-xs flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0" />
+                        <span>{authError}</span>
+                      </div>
+                    )}
+
+                    <form onSubmit={handleAuthSubmit} className="space-y-4">
+                      {authMode === 'register' && (
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-semibold text-slate-400">
+                            Ваше Имя и Фамилия (для сертификатов)
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={authName}
+                            onChange={(e) => setAuthName(e.target.value)}
+                            placeholder="Кирилл Горгос"
+                            className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-sm text-white focus:border-blue-500 focus:outline-none"
+                          />
+                        </div>
+                      )}
+
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-slate-400">Email адрес</label>
+                        <input
+                          type="email"
+                          required
+                          value={authEmail}
+                          onChange={(e) => setAuthEmail(e.target.value)}
+                          placeholder="student@example.com"
+                          className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-sm text-white focus:border-blue-500 focus:outline-none"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-slate-400">Пароль</label>
+                        <input
+                          type="password"
+                          required
+                          value={authPassword}
+                          onChange={(e) => setAuthPassword(e.target.value)}
+                          placeholder="••••••••"
+                          className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-sm text-white focus:border-blue-500 focus:outline-none"
+                        />
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={authLoading}
+                        className="w-full py-3.5 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 disabled:opacity-50 text-white font-bold text-sm shadow-lg shadow-blue-600/25 cursor-pointer transition-all"
+                      >
+                        {authLoading
+                          ? 'Синхронизация с Supabase...'
+                          : authMode === 'login'
+                          ? 'Войти и загрузить прогресс'
+                          : 'Создать аккаунт и сохранить прогресс'}
+                      </button>
+                    </form>
+                  </div>
+                ) : (
+                  <div className="p-6 sm:p-8 rounded-3xl bg-slate-900/90 border border-slate-800 shadow-2xl space-y-6">
+                    <div className="flex items-center justify-between">
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-semibold">
+                        <CloudCheck className="w-4 h-4" /> Облако подключено
+                      </span>
+                      <button
+                        onClick={handleLogout}
+                        className="px-3 py-1.5 rounded-xl bg-rose-950/40 hover:bg-rose-900/50 text-rose-300 border border-rose-800/50 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <LogOut className="w-3.5 h-3.5" /> Выйти
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-4">
+                      <div className="w-20 h-20 rounded-2xl bg-slate-950 border-2 border-blue-500/40 flex items-center justify-center text-4xl shadow-inner">
+                        {userAvatar}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <h2 className="text-xl font-bold text-white truncate">{studentName}</h2>
+                        <p className="text-xs text-slate-400 font-mono truncate">{currentUser.email}</p>
+                        <span className={`inline-block mt-2 px-2.5 py-0.5 rounded-full text-xs font-bold border ${userRank.color}`}>
+                          {userRank.title}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3 pt-2 border-t border-slate-800">
+                      <label className="block text-xs font-semibold text-slate-400">Выберите аватар профиля</label>
+                      <div className="flex flex-wrap gap-2">
+                        {AVATAR_OPTIONS.map((emo) => (
+                          <button
+                            key={emo}
+                            type="button"
+                            onClick={() => setUserAvatar(emo)}
+                            className={`w-10 h-10 rounded-xl text-xl flex items-center justify-center border transition-all cursor-pointer ${
+                              userAvatar === emo
+                                ? 'bg-blue-600/25 border-blue-500 scale-110'
+                                : 'bg-slate-950 border-slate-800 hover:border-slate-700'
+                            }`}
+                          >
+                            {emo}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div className="space-y-1">
+                        <label className="text-xs font-semibold text-slate-400">Имя и Фамилия (для сертификатов)</label>
+                        <input
+                          type="text"
+                          value={studentName}
+                          onChange={(e) => setStudentName(e.target.value)}
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-sm text-white focus:border-blue-500 focus:outline-none"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-xs font-semibold text-slate-400">О себе / Цель обучения</label>
+                        <textarea
+                          rows={2}
+                          value={userBio}
+                          onChange={(e) => setUserBio(e.target.value)}
+                          className="w-full p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-200 focus:border-blue-500 focus:outline-none"
+                        />
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleManualProfileSave}
+                        disabled={authLoading}
+                        className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs flex items-center justify-center gap-2 cursor-pointer transition-colors"
+                      >
+                        <Save className="w-4 h-4" />
+                        <span>{authLoading ? 'Сохранение...' : 'Сохранить профиль в облако'}</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Правая колонка: Статистика, Ранг, Курсы и Сертификаты ученика */}
+              <div className="lg:col-span-7 space-y-6">
+                {/* Карточка ранга и опыта */}
+                <div className="p-6 rounded-3xl bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950/60 border border-slate-800 shadow-xl space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div>
+                      <span className="text-xs uppercase tracking-wider text-slate-400 font-semibold">
+                        Ранг разработчика
+                      </span>
+                      <h3 className="text-2xl font-extrabold text-white mt-0.5">{userRank.title}</h3>
+                    </div>
+                    <div className="px-4 py-2 rounded-2xl bg-slate-950/80 border border-slate-800 flex items-center gap-2">
+                      <Flame className="w-5 h-5 text-amber-400" />
+                      <span className="text-lg font-extrabold text-white">{totalXp} XP</span>
+                      <span className="text-xs text-slate-400">/ {userRank.nextXp} XP</span>
+                    </div>
+                  </div>
+
+                  <div className="w-full h-3 rounded-full bg-slate-950 overflow-hidden border border-slate-800">
+                    <div
+                      className="h-full bg-gradient-to-r from-blue-500 via-cyan-400 to-emerald-400 transition-all duration-500"
+                      style={{ width: `${Math.min(100, Math.round((totalXp / userRank.nextXp) * 100))}%` }}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3 pt-2">
+                    <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800/80 text-center">
+                      <div className="text-2xl font-extrabold text-white">{enrolledCourses.length}</div>
+                      <div className="text-[11px] text-slate-400">Активных курсов</div>
+                    </div>
+                    <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800/80 text-center">
+                      <div className="text-2xl font-extrabold text-emerald-400">{completedItems.length}</div>
+                      <div className="text-[11px] text-slate-400">Пройдено шагов</div>
+                    </div>
+                    <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800/80 text-center">
+                      <div className="text-2xl font-extrabold text-amber-400">
+                        {coursesList.filter((c) => getCourseProgress(c).percent === 100).length}
+                      </div>
+                      <div className="text-[11px] text-slate-400">Сертификатов</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Прогресс по курсам в Личном кабинете */}
+                <div className="p-6 rounded-3xl bg-slate-900/90 border border-slate-800 shadow-xl space-y-4">
+                  <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                    <GraduationCap className="w-5 h-5 text-blue-400" />
+                    <span>Мои курсы и сертификаты</span>
+                  </h3>
+
+                  <div className="space-y-3">
+                    {coursesList.map((course) => {
+                      const prog = getCourseProgress(course);
+                      return (
+                        <div
+                          key={course.id}
+                          className="p-4 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                        >
+                          <div className="space-y-1.5 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${course.badgeBg}`}>
+                                {course.language}
+                              </span>
+                              <span className="text-sm font-bold text-white">{course.title}</span>
+                            </div>
+                            <div className="w-full h-2 rounded-full bg-slate-900 overflow-hidden">
+                              <div
+                                className={`h-full bg-gradient-to-r ${course.accent}`}
+                                style={{ width: `${prog.percent}%` }}
+                              />
+                            </div>
+                            <div className="text-[11px] text-slate-400 font-mono">
+                              Прогресс: {prog.completed} из {prog.total} ({prog.percent}%)
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handleEnrollAndOpen(course.id)}
+                              className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold cursor-pointer"
+                            >
+                              Учиться
+                            </button>
+                            <button
+                              onClick={() => {
+                                setSelectedCourseId(course.id);
+                                setActiveTab('certificate');
+                              }}
+                              className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-300 border border-slate-800 text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                            >
+                              <Award className="w-3.5 h-3.5" /> Сертификат
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ДАШБОРД / КАТАЛОГ / МОЁ ОБУЧЕНИЕ / СЕРТИФИКАТЫ */}
         {(activeTab === 'dashboard' ||
           activeTab === 'catalog' ||
           activeTab === 'my-learning' ||
@@ -1187,13 +1787,13 @@ export default function App() {
                 <div className="max-w-2xl space-y-4">
                   <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/30 text-blue-400 text-xs font-medium">
                     <Sparkles className="w-3.5 h-3.5" />
-                    <span>Интерактивная платформа • Работает без VPN</span>
+                    <span>Интерактивная платформа • Облачные аккаунты Supabase</span>
                   </div>
                   <h1 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight leading-tight">
                     Учись программировать, решая задачи в браузере
                   </h1>
                   <p className="text-slate-300 text-sm sm:text-base leading-relaxed">
-                    Структурированная теория по C++ и Python, встроенный редактор кода с автопроверкой тестов и именные сертификаты.
+                    Структурированная теория по C++ и Python, встроенный редактор кода с автопроверкой тестов, личный кабинет и именные сертификаты.
                   </p>
                   <div className="pt-2 flex flex-wrap gap-3">
                     <button
@@ -1203,13 +1803,13 @@ export default function App() {
                       <Play className="w-4 h-4 fill-current" />
                       <span>Начать обучение</span>
                     </button>
-                    <Link
-                      href="/admin"
-                      className="px-5 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 font-semibold text-sm border border-slate-700 flex items-center gap-2 transition-all"
+                    <button
+                      onClick={() => setActiveTab('profile')}
+                      className="px-5 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 font-semibold text-sm border border-slate-700 flex items-center gap-2 transition-all cursor-pointer"
                     >
-                      <Settings className="w-4 h-4 text-indigo-400" />
-                      <span>Конструктор курсов (Админка)</span>
-                    </Link>
+                      <User className="w-4 h-4 text-cyan-400" />
+                      <span>{currentUser ? 'Открыть личный кабинет' : 'Войти / Создать аккаунт'}</span>
+                    </button>
                   </div>
                 </div>
               </div>
@@ -1401,6 +2001,7 @@ export default function App() {
           </div>
         )}
 
+        {/* ИНТЕРФЕЙС ПРОХОЖДЕНИЯ УРОКОВ И ЗАДАЧ */}
         {activeTab === 'learn' && currentItem && (
           <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
             <div className="md:hidden flex items-center justify-between px-4 py-3 bg-slate-900 border-b border-slate-800">
@@ -1502,7 +2103,7 @@ export default function App() {
                       className="px-6 py-3.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-sm flex items-center gap-2 cursor-pointer"
                     >
                       <CheckCircle2 className="w-4 h-4" />
-                      <span>Отметить как изученное и перейти далее</span>
+                      <span>Отметить как изученное (+50 XP) и перейти далее</span>
                       <ChevronRight className="w-4 h-4" />
                     </button>
                   </div>
@@ -1580,7 +2181,7 @@ export default function App() {
                           className="px-5 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-sm flex items-center gap-2 cursor-pointer"
                         >
                           <CheckCircle2 className="w-4 h-4" />
-                          <span>Задача решена (Перейти далее)</span>
+                          <span>Задача решена (+50 XP • Далее)</span>
                           <ArrowRight className="w-4 h-4" />
                         </button>
                       )}
