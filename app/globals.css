@@ -1,5 +1,195 @@
 @import "tailwindcss";
 
-body {
-  @apply bg-slate-950 text-slate-200;
+/* ============================================================
+   DevCourses — дизайн-система «Graphite & Iris»
+   Вся палитра задана здесь: классы slate-*, blue-*, indigo-*
+   по всему приложению автоматически получают новые цвета.
+   ============================================================ */
+
+@theme static {
+  /* Нейтральные: тёплый графит вместо холодного slate */
+  --color-slate-50: oklch(0.985 0.003 80);
+  --color-slate-100: oklch(0.965 0.004 80);
+  --color-slate-200: oklch(0.91 0.006 80);
+  --color-slate-300: oklch(0.83 0.008 80);
+  --color-slate-400: oklch(0.7 0.01 80);
+  --color-slate-500: oklch(0.6 0.01 80);
+  --color-slate-600: oklch(0.45 0.01 78);
+  --color-slate-700: oklch(0.34 0.01 78);
+  --color-slate-800: oklch(0.27 0.009 78);
+  --color-slate-900: oklch(0.215 0.008 78);
+  --color-slate-950: oklch(0.165 0.007 78);
+
+  /* Акцент: ирис (фиолетово-синий) */
+  --color-blue-50: oklch(0.97 0.014 285);
+  --color-blue-100: oklch(0.94 0.03 285);
+  --color-blue-200: oklch(0.89 0.06 285);
+  --color-blue-300: oklch(0.82 0.1 285);
+  --color-blue-400: oklch(0.73 0.15 285);
+  --color-blue-500: oklch(0.62 0.2 285);
+  --color-blue-600: oklch(0.54 0.22 285);
+  --color-blue-700: oklch(0.47 0.21 285);
+  --color-blue-800: oklch(0.39 0.17 285);
+  --color-blue-900: oklch(0.32 0.13 285);
+  --color-blue-950: oklch(0.24 0.09 285);
+
+  /* indigo (используется в админке) совпадает с акцентом */
+  --color-indigo-50: var(--color-blue-50);
+  --color-indigo-100: var(--color-blue-100);
+  --color-indigo-200: var(--color-blue-200);
+  --color-indigo-300: var(--color-blue-300);
+  --color-indigo-400: var(--color-blue-400);
+  --color-indigo-500: var(--color-blue-500);
+  --color-indigo-600: var(--color-blue-600);
+  --color-indigo-700: var(--color-blue-700);
+  --color-indigo-800: var(--color-blue-800);
+  --color-indigo-900: var(--color-blue-900);
+  --color-indigo-950: var(--color-blue-950);
+
+  /* Скругления чуть мягче */
+  --radius-xl: 0.875rem;
+  --radius-2xl: 1.25rem;
+  --radius-3xl: 1.75rem;
+}
+
+@theme inline {
+  --font-sans: var(--font-onest), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-serif: var(--font-lora), Georgia, "Times New Roman", serif;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+    background: var(--color-slate-950);
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    color: var(--color-slate-200);
+    font-feature-settings: "cv11", "ss01";
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: var(--color-blue-600);
+    color: #fff;
+  }
+
+  /* Tailwind 4 убрал pointer у кнопок — возвращаем */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  summary,
+  label:has(input[type="file"]) {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-blue-400);
+    outline-offset: 2px;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-slate-700) transparent;
+  }
+
+  textarea,
+  input {
+    color-scheme: dark;
+  }
+
+  /* Типографика: ровные переносы в заголовках и абзацах, цифры одной ширины в моно */
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+  p {
+    text-wrap: pretty;
+  }
+  .font-mono {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Якорные переходы не прячутся под липкими шапками */
+  html {
+    scroll-padding-top: 5rem;
+  }
+}
+
+/* Ссылка «Перейти к содержимому» для клавиатуры и скринридеров */
+.skip-link {
+  position: fixed;
+  top: 0.75rem;
+  left: 0.75rem;
+  z-index: 100;
+  padding: 0.6rem 1rem;
+  border-radius: 0.75rem;
+  background: var(--color-blue-600);
+  color: #fff;
+  font-size: 0.875rem;
+  font-weight: 600;
+  transform: translateY(-200%);
+  transition: transform 0.15s ease;
+}
+.skip-link:focus-visible {
+  transform: translateY(0);
+}
+
+/* Плавное появление блоков (отключается prefers-reduced-motion ниже) */
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-fade-up {
+  animation: fade-up 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* На сенсорных экранах нет hover — не «подпрыгиваем» после тапа */
+@media (hover: none) {
+  .group:hover {
+    transform: none !important;
+  }
+}
+
+/* Повышенный контраст по запросу системы */
+@media (prefers-contrast: more) {
+  :root {
+    --color-slate-400: oklch(0.78 0.01 80);
+    --color-slate-500: oklch(0.72 0.01 80);
+  }
+}
+
+/* Атмосферный фон: свечение + точечная сетка */
+.bg-ambient {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(60rem 38rem at 12% -8%, oklch(0.54 0.22 285 / 0.2), transparent 60%),
+    radial-gradient(48rem 32rem at 100% 0%, oklch(0.78 0.15 75 / 0.08), transparent 55%),
+    radial-gradient(oklch(1 0 0 / 0.045) 1px, transparent 1px) 0 0 / 22px 22px;
+  mask-image: linear-gradient(to bottom, #000 0%, #000 55%, transparent 100%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

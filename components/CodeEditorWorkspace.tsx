@@ -17,6 +17,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { type CourseItem } from "@/lib/data";
+import { safeGet, safeSet } from "@/lib/safe-storage";
 import { runTestCases, type TestSuiteResult, type SingleTestResult } from "@/lib/executor";
 
 interface CodeEditorWorkspaceProps {
@@ -41,13 +42,13 @@ export default function CodeEditorWorkspace({
     : "cpp";
 
   const storageKey = `devcourses_code_${item.id}`;
+  // Ограничение размера решения: защищает localStorage и сервер проверки
+  const MAX_CODE_LENGTH = 30000;
 
   // Initialize code from localStorage or item.initialCode
   const [code, setCode] = useState<string>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem(storageKey);
-      if (saved) return saved;
-    }
+    const saved = safeGet(storageKey);
+    if (saved) return saved;
     return item.initialCode || "";
   });
 
@@ -58,12 +59,7 @@ export default function CodeEditorWorkspace({
 
   // Synchronize when switching to a different task
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem(storageKey);
-      setCode(saved || item.initialCode || "");
-    } else {
-      setCode(item.initialCode || "");
-    }
+    setCode(safeGet(storageKey) || item.initialCode || "");
     setTestSuiteResult(null);
     setSelectedTestIdx(0);
     setActiveTab("results");
@@ -71,13 +67,9 @@ export default function CodeEditorWorkspace({
 
   // Save code changes to LocalStorage
   const handleCodeChange = (newVal?: string) => {
-    const val = newVal ?? "";
+    const val = (newVal ?? "").slice(0, MAX_CODE_LENGTH);
     setCode(val);
-    try {
-      localStorage.setItem(storageKey, val);
-    } catch {
-      // ignore storage errors
-    }
+    safeSet(storageKey, val);
   };
 
   // Reset code to default initialCode template
@@ -85,7 +77,7 @@ export default function CodeEditorWorkspace({
     if (window.confirm("Сбросить код до исходного шаблона? Ваши текущие изменения будут стёрты.")) {
       const initial = item.initialCode || "";
       setCode(initial);
-      localStorage.setItem(storageKey, initial);
+      safeSet(storageKey, initial);
       setTestSuiteResult(null);
     }
   };
@@ -103,13 +95,13 @@ export default function CodeEditorWorkspace({
       if (result.success) {
         onComplete();
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       setTestSuiteResult({
         success: false,
         total: item.tests.length,
         passedCount: 0,
         results: [],
-        error: err?.message || "Ошибка при выполнении тестов",
+        error: err instanceof Error && err.message ? err.message : "Ошибка при выполнении тестов",
       });
     } finally {
       setIsRunning(false);

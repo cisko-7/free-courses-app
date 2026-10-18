@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import {
@@ -21,7 +21,8 @@ import {
   Settings,
   CloudUpload,
   RefreshCw,
-  AlertCircle
+  AlertCircle,
+  LogOut
 } from 'lucide-react';
 
 // --- СТРОГАЯ ТИПИЗАЦИЯ ---
@@ -180,11 +181,71 @@ const DEFAULT_COURSES: Course[] = [
   }
 ];
 
+// Короткий уникальный id (раньше брались 4–5 последних цифр Date.now() — возможны коллизии)
+const uid = (): string =>
+  (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}${Math.random()}`)
+    .replace(/[^a-z0-9]/gi, '')
+    .slice(0, 8);
+
+// Права администратора хранятся в app_metadata — клиент не может изменить это поле
+const hasAdminRole = (
+  session: { user?: { app_metadata?: Record<string, unknown> } } | null | undefined
+): boolean => session?.user?.app_metadata?.role === 'admin';
+
+function isValidCourse(x: unknown): x is Course {
+  if (!x || typeof x !== 'object') return false;
+  const c = x as Partial<Course>;
+  const strings = [c.id, c.title, c.language, c.level, c.duration, c.accent, c.badgeBg, c.description];
+  if (!strings.every((v) => typeof v === 'string')) return false;
+  if (c.langKey !== 'cpp' && c.langKey !== 'python') return false;
+  if (!Array.isArray(c.modules) || c.modules.length === 0) return false;
+  return c.modules.every(
+    (m) =>
+      !!m &&
+      typeof m.id === 'string' &&
+      typeof m.title === 'string' &&
+      Array.isArray(m.items) &&
+      m.items.length > 0 &&
+      m.items.every(
+        (i) =>
+          !!i &&
+          typeof i.id === 'string' &&
+          typeof i.title === 'string' &&
+          typeof i.content === 'string' &&
+          (i.type === 'theory' || i.type === 'task')
+      )
+  );
+}
+
+function validateCourses(list: Course[]): string[] {
+  const problems: string[] = [];
+  list.forEach((c) => {
+    if (!c.title.trim()) problems.push(`Курс «${c.id}»: пустое название`);
+    c.modules.forEach((m) =>
+      m.items.forEach((item) => {
+        if (!item.title.trim()) problems.push(`${c.title}: урок без названия`);
+        if (item.type === 'task') {
+          const tests = item.tests || [];
+          if (tests.length === 0) {
+            problems.push(`${c.title} → «${item.title}»: у задачи нет тестов`);
+          } else if (tests.some((t) => !t.expected.trim())) {
+            problems.push(`${c.title} → «${item.title}»: в тестах пустой ожидаемый вывод`);
+          }
+        }
+      })
+    );
+  });
+  return problems;
+}
+
 export default function AdminPage() {
   const [courses, setCourses] = useState<Course[]>(DEFAULT_COURSES);
-  const [isUnlocked, setIsUnlocked] = useState<boolean>(false);
-  const [pinInput, setPinInput] = useState<string>('');
-  const SECRET_PIN = 'cisko_07'; // Придумай свой пароль или PIN-код
+  const [isAdmin, setIsAdmin] = useState<boolean>(false);
+  const [authChecked, setAuthChecked] = useState<boolean>(false);
+  const [adminEmail, setAdminEmail] = useState<string>('');
+  const [adminPassword, setAdminPassword] = useState<string>('');
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [loginLoading, setLoginLoading] = useState<boolean>(false);
   const [isHydrated, setIsHydrated] = useState<boolean>(false);
 
   const [selectedCourseId, setSelectedCourseId] = useState<string>('cpp-basics');
@@ -198,9 +259,18 @@ export default function AdminPage() {
   const [isSyncingCloud, setIsSyncingCloud] = useState<boolean>(false);
   const [cloudStatus, setCloudStatus] = useState<string>('Загрузка из облака...');
   const [cloudError, setCloudError] = useState<string | null>(null);
+  const [cloudTone, setCloudTone] = useState<'ok' | 'warn' | 'error'>('warn');
+  const [hasUnsaved, setHasUnsaved] = useState<boolean>(false);
+
+  const setStatus = useCallback((text: string, tone: 'ok' | 'warn' | 'error', unsaved?: boolean) => {
+    setCloudStatus(text);
+    setCloudTone(tone);
+    if (unsaved !== undefined) setHasUnsaved(unsaved);
+  }, []);
 
   // Загрузка курсов: сначала из Supabase, если база пустая — из localStorage или стандартные
   useEffect(() => {
+    if (!isAdmin) return;
     let isMounted = true;
 
     async function loadInitialCourses() {
@@ -210,8 +280,9 @@ export default function AdminPage() {
           .select('data')
           .order('created_at', { ascending: true });
 
-        if (!error && data && data.length > 0 && isMounted) {
-          const loadedCourses = data.map((row: { data: Course }) => row.data);
+        // Берём из облака только строки с корректной структурой курса
+        const loadedCourses = (data ?? []).map((row: { data: unknown }) => row.data).filter(isValidCourse);
+        if (!error && loadedCourses.length > 0 && isMounted) {
           setCourses(loadedCourses);
           setSelectedCourseId(loadedCourses[0].id);
           const firstMod = loadedCourses[0].modules[0];
@@ -220,7 +291,7 @@ export default function AdminPage() {
             if (firstMod.items[0]) setSelectedItemId(firstMod.items[0].id);
           }
           localStorage.setItem('dc_custom_courses', JSON.stringify(loadedCourses));
-          setCloudStatus('Синхронизировано с Supabase ☁️');
+          setStatus('Синхронизировано с Supabase ☁️', 'ok', false);
           setIsHydrated(true);
           return;
         }
@@ -232,13 +303,13 @@ export default function AdminPage() {
       try {
         const saved = localStorage.getItem('dc_custom_courses');
         if (saved) {
-          const parsed: Course[] = JSON.parse(saved);
-          if (Array.isArray(parsed) && parsed.length > 0) {
+          const parsed: unknown = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0 && parsed.every(isValidCourse)) {
             setCourses(parsed);
             setSelectedCourseId(parsed[0].id);
           }
         }
-        setCloudStatus('Локальный режим (нажмите «Опубликовать в облако»)');
+        setStatus('Локальный режим (нажмите «Опубликовать в облако»)', 'warn', true);
       } catch {
         // Игнорируем ошибку
       } finally {
@@ -250,7 +321,78 @@ export default function AdminPage() {
     return () => {
       isMounted = false;
     };
+  }, [isAdmin, setStatus]);
+
+  // Проверка сессии Supabase и роли администратора
+  useEffect(() => {
+    let mounted = true;
+
+    supabase.auth
+      .getSession()
+      .then(({ data }) => {
+        if (!mounted) return;
+        setIsAdmin(hasAdminRole(data.session));
+        setAuthChecked(true);
+      })
+      .catch(() => {
+        if (mounted) setAuthChecked(true);
+      });
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      setIsAdmin(hasAdminRole(session));
+    });
+
+    return () => {
+      mounted = false;
+      sub.subscription.unsubscribe();
+    };
   }, []);
+
+  // Предупреждение при закрытии вкладки с неопубликованными изменениями
+  useEffect(() => {
+    if (!hasUnsaved) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [hasUnsaved]);
+
+  const handleAdminLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError(null);
+    setLoginLoading(true);
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: adminEmail.trim().toLowerCase(),
+        password: adminPassword
+      });
+      if (error || !data.session) {
+        setLoginError('Неверный Email или пароль.');
+        return;
+      }
+      if (!hasAdminRole(data.session)) {
+        await supabase.auth.signOut();
+        setLoginError('У этого аккаунта нет прав администратора.');
+        return;
+      }
+      setAdminPassword('');
+    } catch {
+      setLoginError('Не удалось подключиться к Supabase.');
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  const handleAdminLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch {
+      // Выходим локально в любом случае
+    }
+    setIsAdmin(false);
+  };
 
   // Локальный бэкап при каждом изменении
   useEffect(() => {
@@ -264,6 +406,13 @@ export default function AdminPage() {
 
   // Функция сохранения всех курсов в облако Supabase
   const handleSaveToSupabase = async () => {
+    const problems = validateCourses(courses);
+    if (problems.length > 0) {
+      const more = problems.length > 5 ? `\n…и ещё ${problems.length - 5}` : '';
+      setCloudError(`Исправьте ошибки перед публикацией:\n• ${problems.slice(0, 5).join('\n• ')}${more}`);
+      return;
+    }
+
     setIsSyncingCloud(true);
     setCloudError(null);
 
@@ -279,9 +428,9 @@ export default function AdminPage() {
 
       if (error) {
         setCloudError(`Ошибка Supabase: ${error.message}`);
-        setCloudStatus('Ошибка сохранения ❌');
+        setStatus('Ошибка сохранения ❌', 'error');
       } else {
-        setCloudStatus('Опубликовано в Supabase ✅');
+        setStatus('Опубликовано в Supabase ✅', 'ok', false);
       }
     } catch {
       setCloudError('Не удалось соединиться с сервером Supabase.');
@@ -308,9 +457,9 @@ export default function AdminPage() {
   // --- ОПЕРАЦИИ С КУРСАМИ ---
 
   const handleAddCourse = () => {
-    const newId = `course-${Date.now().toString().slice(-4)}`;
-    const newModId = `mod-${Date.now().toString().slice(-4)}`;
-    const newItemId = `item-${Date.now().toString().slice(-4)}`;
+    const newId = `course-${uid()}`;
+    const newModId = `mod-${uid()}`;
+    const newItemId = `item-${uid()}`;
 
     const newCourse: Course = {
       id: newId,
@@ -344,11 +493,13 @@ export default function AdminPage() {
     setSelectedModuleId(newModId);
     setSelectedItemId(newItemId);
     setActiveRightPanel('course-settings');
-    setCloudStatus('Есть несохранённые в облаке изменения');
+    setStatus('Есть несохранённые в облаке изменения', 'warn', true);
   };
 
   const handleDeleteCourse = async (courseId: string) => {
     if (courses.length <= 1) return;
+    const target = courses.find((c) => c.id === courseId);
+    if (!window.confirm(`Удалить курс «${target?.title ?? courseId}» вместе со всеми модулями и из облака?`)) return;
     const filtered = courses.filter((c) => c.id !== courseId);
     setCourses(filtered);
     setSelectedCourseId(filtered[0].id);
@@ -356,16 +507,17 @@ export default function AdminPage() {
     setSelectedItemId(filtered[0].modules[0]?.items[0]?.id || '');
 
     try {
-      await supabase.from('courses').delete().eq('id', courseId);
-      setCloudStatus('Курс удалён из облака 🗑️');
+      const { error } = await supabase.from('courses').delete().eq('id', courseId);
+      if (error) setCloudError(`Не удалось удалить курс из облака: ${error.message}`);
+      else setStatus('Курс удалён из облака 🗑️', 'ok');
     } catch {
-      // Игнорируем ошибку сети
+      setCloudError('Не удалось соединиться с сервером Supabase.');
     }
   };
 
   const updateCurrentCourse = (patch: Partial<Course>) => {
     if (!currentCourse) return;
-    setCloudStatus('Есть несохранённые в облаке изменения');
+    setStatus('Есть несохранённые в облаке изменения', 'warn', true);
     setCourses((prev) =>
       prev.map((c) => {
         if (c.id !== currentCourse.id) return c;
@@ -408,8 +560,8 @@ export default function AdminPage() {
   const handleAddModule = () => {
     if (!currentCourse) return;
     const modNum = currentCourse.modules.length + 1;
-    const newModId = `mod-${Date.now().toString().slice(-5)}`;
-    const newItemId = `item-${Date.now().toString().slice(-5)}`;
+    const newModId = `mod-${uid()}`;
+    const newItemId = `item-${uid()}`;
 
     const newMod: CourseModule = {
       id: newModId,
@@ -439,6 +591,8 @@ export default function AdminPage() {
 
   const handleDeleteModule = (modId: string) => {
     if (!currentCourse || currentCourse.modules.length <= 1) return;
+    const delMod = currentCourse.modules.find((m) => m.id === modId);
+    if (!window.confirm(`Удалить модуль «${delMod?.title ?? modId}» и все его уроки?`)) return;
     const nextModules = currentCourse.modules.filter((m) => m.id !== modId);
     updateCurrentCourse({ modules: nextModules });
     setSelectedModuleId(nextModules[0].id);
@@ -449,7 +603,7 @@ export default function AdminPage() {
 
   const handleAddItem = (modId: string, type: 'theory' | 'task') => {
     if (!currentCourse) return;
-    const newItemId = `item-${Date.now().toString().slice(-5)}`;
+    const newItemId = `item-${uid()}`;
     const isCpp = currentCourse.langKey === 'cpp';
 
     const newItem: CourseItem =
@@ -489,6 +643,8 @@ export default function AdminPage() {
     if (!currentCourse) return;
     const targetMod = currentCourse.modules.find((m) => m.id === modId);
     if (!targetMod || targetMod.items.length <= 1) return;
+    const delItem = targetMod.items.find((i) => i.id === itemId);
+    if (!window.confirm(`Удалить «${delItem?.title ?? itemId}»?`)) return;
 
     const updatedItems = targetMod.items.filter((i) => i.id !== itemId);
     updateCurrentCourse({
@@ -549,72 +705,110 @@ export default function AdminPage() {
   };
 
   const handleImportJson = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    const input = e.target;
+    const file = input.files?.[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
-        const parsed = JSON.parse(String(event.target?.result));
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setCourses(parsed);
-          setSelectedCourseId(parsed[0].id);
-          setCloudStatus('Импортировано! Нажмите «Опубликовать в облако»');
+        const parsed: unknown = JSON.parse(String(event.target?.result));
+        if (!Array.isArray(parsed) || parsed.length === 0 || !parsed.every(isValidCourse)) {
+          setCloudError('Импорт отменён: файл не похож на базу курсов DevCourses (проверьте структуру JSON).');
+          return;
         }
+        const list = parsed as Course[];
+        if (!window.confirm(`Заменить текущие курсы (${courses.length}) импортированными (${list.length})?`)) return;
+        setCloudError(null);
+        setCourses(list);
+        setSelectedCourseId(list[0].id);
+        setSelectedModuleId(list[0].modules[0].id);
+        setSelectedItemId(list[0].modules[0].items[0].id);
+        setStatus('Импортировано! Нажмите «Опубликовать в облако»', 'warn', true);
       } catch {
-        // Ошибка чтения JSON
+        setCloudError('Импорт отменён: файл не является корректным JSON.');
+      } finally {
+        input.value = ''; // позволяет повторно выбрать тот же файл
       }
     };
     reader.readAsText(file);
   };
 
   const handleResetToDefaults = () => {
+    if (!window.confirm('Сбросить все курсы к стандартным? Несохранённые изменения будут потеряны.')) return;
     localStorage.removeItem('dc_custom_courses');
     setCourses(DEFAULT_COURSES);
     setSelectedCourseId(DEFAULT_COURSES[0].id);
     setSelectedModuleId(DEFAULT_COURSES[0].modules[0].id);
     setSelectedItemId(DEFAULT_COURSES[0].modules[0].items[0].id);
-    setCloudStatus('Сброшено к стандартным (нажмите «Опубликовать»)');
+    setStatus('Сброшено к стандартным (нажмите «Опубликовать»)', 'warn', true);
   };
-  if (!isUnlocked) {
+  if (!authChecked) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-200 flex items-center justify-center p-4">
-        <div className="max-w-sm w-full p-6 rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl space-y-4 text-center">
+      <div className="min-h-screen text-slate-400 flex items-center justify-center text-sm">
+        Проверка доступа…
+      </div>
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <div className="min-h-screen text-slate-200 flex items-center justify-center p-4">
+        <form
+          onSubmit={handleAdminLogin}
+          className="max-w-sm w-full p-6 rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl space-y-4 text-center"
+        >
           <div className="w-12 h-12 rounded-2xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center mx-auto text-indigo-400">
             <Settings className="w-6 h-6" />
           </div>
           <h1 className="text-xl font-bold text-white">Вход для администратора</h1>
           <p className="text-xs text-slate-400">
-            Введите секретный PIN-код для доступа к управлению базой курсов Supabase
+            Войдите аккаунтом с ролью администратора, чтобы управлять базой курсов Supabase
           </p>
+
+          {loginError && (
+            <div className="p-3 rounded-xl bg-rose-950/50 border border-rose-500/40 text-rose-200 text-xs flex items-center gap-2 text-left">
+              <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0" />
+              <span>{loginError}</span>
+            </div>
+          )}
+
+          <input
+            type="email"
+            required
+            autoComplete="username"
+            value={adminEmail}
+            onChange={(e) => setAdminEmail(e.target.value)}
+            placeholder="Email"
+            aria-label="Email администратора"
+            className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-sm text-white focus:border-blue-500 focus:outline-none"
+          />
           <input
             type="password"
-            value={pinInput}
-            onChange={(e) => setPinInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && pinInput === SECRET_PIN) setIsUnlocked(true);
-            }}
-            placeholder="Введите PIN-код..."
-            className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-center text-lg tracking-widest text-white focus:border-blue-500 focus:outline-none"
+            required
+            autoComplete="current-password"
+            value={adminPassword}
+            onChange={(e) => setAdminPassword(e.target.value)}
+            placeholder="Пароль"
+            aria-label="Пароль администратора"
+            className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-sm text-white focus:border-blue-500 focus:outline-none"
           />
           <button
-            onClick={() => {
-              if (pinInput === SECRET_PIN) setIsUnlocked(true);
-              else alert('Неверный пароль!');
-            }}
-            className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-sm cursor-pointer transition-colors"
+            type="submit"
+            disabled={loginLoading}
+            className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-semibold text-sm cursor-pointer transition-colors"
           >
-            Разблокировать студию
+            {loginLoading ? 'Проверка…' : 'Войти в студию'}
           </button>
           <Link href="/" className="block text-xs text-slate-500 hover:text-slate-300 pt-2">
             ← Вернуться на главную
           </Link>
-        </div>
+        </form>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-200 flex flex-col">
+    <div className="min-h-screen text-slate-200 flex flex-col">
       {/* Шапка админки */}
       <header className="sticky top-0 z-50 bg-slate-950/90 backdrop-blur-md border-b border-slate-800 px-4 sm:px-6 py-3">
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
@@ -635,8 +829,21 @@ export default function AdminPage() {
                 <h1 className="font-bold text-base sm:text-lg text-white leading-none">
                   DevCourses Cloud Studio
                 </h1>
-                <span className="text-[11px] text-emerald-400 font-mono flex items-center gap-1 mt-0.5">
-                  <CheckCircle2 className="w-3 h-3" /> {cloudStatus}
+                <span
+                  className={`text-[11px] font-mono flex items-center gap-1 mt-0.5 ${
+                    cloudTone === 'ok'
+                      ? 'text-emerald-400'
+                      : cloudTone === 'warn'
+                      ? 'text-amber-400'
+                      : 'text-rose-400'
+                  }`}
+                >
+                  {cloudTone === 'ok' ? (
+                    <CheckCircle2 className="w-3 h-3" />
+                  ) : (
+                    <AlertCircle className="w-3 h-3" />
+                  )}{' '}
+                  {cloudStatus}
                 </span>
               </div>
             </div>
@@ -679,6 +886,14 @@ export default function AdminPage() {
               <RotateCcw className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Сброс</span>
             </button>
+
+            <button
+              onClick={handleAdminLogout}
+              className="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 text-xs font-medium flex items-center gap-1.5 cursor-pointer"
+            >
+              <LogOut className="w-3.5 h-3.5 text-slate-400" />
+              <span className="hidden sm:inline">Выйти</span>
+            </button>
           </div>
         </div>
       </header>
@@ -687,7 +902,7 @@ export default function AdminPage() {
         <div className="max-w-7xl w-full mx-auto px-6 pt-4">
           <div className="p-3 rounded-xl bg-rose-950/50 border border-rose-500/40 text-rose-200 text-xs flex items-center gap-2">
             <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0" />
-            <span>{cloudError}</span>
+            <span className="whitespace-pre-line">{cloudError}</span>
           </div>
         </div>
       )}
@@ -742,6 +957,7 @@ export default function AdminPage() {
                     {courses.length > 1 && (
                       <button
                         onClick={() => handleDeleteCourse(c.id)}
+                        aria-label={`Удалить курс «${c.title}»`}
                         className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-950/40 cursor-pointer"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -796,6 +1012,7 @@ export default function AdminPage() {
                       {currentCourse.modules.length > 1 && (
                         <button
                           onClick={() => handleDeleteModule(mod.id)}
+                          aria-label={`Удалить модуль «${mod.title}»`}
                           className="p-1.5 text-slate-500 hover:text-rose-400 cursor-pointer"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -835,6 +1052,7 @@ export default function AdminPage() {
                             {mod.items.length > 1 && (
                               <button
                                 onClick={() => handleDeleteItem(mod.id, item.id)}
+                                aria-label={`Удалить «${item.title}»`}
                                 className="p-1 text-slate-600 hover:text-rose-400 cursor-pointer"
                               >
                                 <Trash2 className="w-3 h-3" />
@@ -948,6 +1166,7 @@ export default function AdminPage() {
                       {skill}
                       <button
                         onClick={() => handleRemoveSkill(skill)}
+                        aria-label={`Удалить навык ${skill}`}
                         className="hover:text-rose-400 cursor-pointer"
                       >
                         ×
@@ -1003,8 +1222,12 @@ export default function AdminPage() {
                     onClick={() =>
                       updateCurrentItem({
                         type: 'task',
-                        initialCode: currentItem.initialCode || '// Код по умолчанию\n',
-                        solution: currentItem.solution || '// Решение\n',
+                        initialCode:
+                          currentItem.initialCode ||
+                          (currentCourse?.langKey === 'python' ? '# Ваш код здесь\n' : '// Ваш код здесь\n'),
+                        solution:
+                          currentItem.solution ||
+                          (currentCourse?.langKey === 'python' ? '# Эталонное решение\n' : '// Эталонное решение\n'),
                         tests: currentItem.tests?.length
                           ? currentItem.tests
                           : [{ input: '1', expected: '1' }]
@@ -1125,6 +1348,7 @@ export default function AdminPage() {
                             {(currentItem.tests?.length || 0) > 1 && (
                               <button
                                 onClick={() => handleDeleteTestCase(idx)}
+                                aria-label={`Удалить тест ${idx + 1}`}
                                 className="p-2 rounded-lg bg-rose-950/40 text-rose-400 hover:bg-rose-900/50 cursor-pointer"
                               >
                                 <Trash2 className="w-4 h-4" />

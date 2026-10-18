@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight,
@@ -47,7 +48,7 @@ export default function CourseCard({
   };
 
   return (
-    <div className="group relative rounded-2xl bg-slate-900/70 border border-slate-800/80 hover:border-blue-500/50 backdrop-blur-md p-6 flex flex-col justify-between transition-all duration-300 hover:shadow-2xl hover:shadow-blue-500/10 hover:-translate-y-1">
+    <div className="group relative isolate rounded-2xl bg-slate-900/70 border border-slate-800/80 hover:border-blue-500/50 focus-within:border-blue-500/50 backdrop-blur-md p-6 flex flex-col justify-between transition-all duration-300 hover:shadow-2xl hover:shadow-blue-500/10 motion-safe:hover:-translate-y-1">
       {/* Decorative gradient glow on hover */}
       <div className="absolute inset-0 -z-10 rounded-2xl bg-gradient-to-br from-blue-600/5 via-indigo-600/0 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
 
@@ -69,7 +70,7 @@ export default function CourseCard({
 
             {isEnrolled && (
               <span
-                className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${
+                className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
                   isCompleted
                     ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
                     : "bg-blue-500/10 text-blue-300 border-blue-500/20"
@@ -77,12 +78,12 @@ export default function CourseCard({
               >
                 {isCompleted ? (
                   <>
-                    <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                    <CheckCircle2 className="w-3 h-3 text-emerald-400" aria-hidden="true" />
                     <span>Завершен</span>
                   </>
                 ) : (
                   <>
-                    <PlayCircle className="w-3 h-3 text-blue-400" />
+                    <PlayCircle className="w-3 h-3 text-blue-400" aria-hidden="true" />
                     <span>В процессе</span>
                   </>
                 )}
@@ -98,7 +99,12 @@ export default function CourseCard({
 
         {/* Course Title */}
         <h3 className="text-xl font-bold text-white mb-2.5 group-hover:text-blue-300 transition-colors line-clamp-2">
-          {course.title}
+          <Link
+            href={`/course/${course.id}`}
+            className="rounded-sm focus-visible:outline-offset-4"
+          >
+            {course.title}
+          </Link>
         </h3>
 
         {/* Course Description */}
@@ -116,7 +122,14 @@ export default function CourseCard({
               {completedCount}/{totalItems} ({progressPercent}%)
             </span>
           </div>
-          <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+          <div
+            role="progressbar"
+            aria-label={`Прогресс по курсу «${course.title}»`}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={progressPercent}
+            className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden"
+          >
             <div
               className={`h-1.5 rounded-full transition-all duration-500 ${
                 isCompleted ? "bg-emerald-500" : "bg-gradient-to-r from-blue-500 to-indigo-500"
@@ -134,7 +147,7 @@ export default function CourseCard({
             <Layers className="w-3.5 h-3.5 text-slate-500" />
             <span>{totalTopics} тем</span>
           </div>
-          <span>•</span>
+          <span aria-hidden="true">•</span>
           <div className="flex items-center gap-1.5">
             <BookOpen className="w-3.5 h-3.5 text-slate-500" />
             <span>{totalItems} уроков</span>
@@ -144,18 +157,20 @@ export default function CourseCard({
         {/* Action Button */}
         {isEnrolled ? (
           <button
+            type="button"
             onClick={handleAction}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold text-white bg-blue-600 hover:bg-blue-500 shadow-md shadow-blue-600/20 hover:shadow-blue-500/30 transition-all duration-150 active:scale-95"
           >
             <span>{isCompleted ? "Повторить" : "Продолжить"}</span>
-            <ArrowRight className="w-3.5 h-3.5" />
+            <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
           </button>
         ) : (
           <button
+            type="button"
             onClick={handleAction}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold text-blue-400 hover:text-white bg-blue-500/10 hover:bg-blue-600 border border-blue-500/25 hover:border-blue-500 shadow-sm transition-all duration-150 active:scale-95 group-hover:bg-blue-600 group-hover:text-white"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold text-blue-300 hover:text-white bg-blue-500/10 hover:bg-blue-600 border border-blue-500/25 hover:border-blue-500 shadow-sm transition-all duration-150 active:scale-95"
           >
-            <GraduationCap className="w-4 h-4" />
+            <GraduationCap className="w-4 h-4" aria-hidden="true" />
             <span>Поступить на курс</span>
           </button>
         )}

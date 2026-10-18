@@ -360,7 +360,19 @@ function CourseViewerContent({ course }: CourseViewerProps) {
                 <div className="prose-content text-slate-300 leading-relaxed space-y-4 mb-8">
                   <Markdown
                     components={{
-                      h1: ({ children }) => (
+                      a: ({ href, children }) => {
+                      const isExternal = !!href && /^https?:\/\//i.test(href);
+                      return (
+                        <a
+                          href={href}
+                          {...(isExternal ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+                          className="text-blue-400 underline decoration-blue-400/40 underline-offset-2 hover:text-blue-300 hover:decoration-blue-300 transition-colors"
+                        >
+                          {children}
+                        </a>
+                      );
+                    },
+                    h1: ({ children }) => (
                         <h2 className="text-xl font-bold text-white mt-6 mb-3 border-b border-slate-800 pb-1.5">
                           {children}
                         </h2>
@@ -568,6 +580,18 @@ function CourseViewerContent({ course }: CourseViewerProps) {
               <div className="prose-content flex-1 text-slate-300 leading-relaxed space-y-4">
                 <Markdown
                   components={{
+                    a: ({ href, children }) => {
+                      const isExternal = !!href && /^https?:\/\//i.test(href);
+                      return (
+                        <a
+                          href={href}
+                          {...(isExternal ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+                          className="text-blue-400 underline decoration-blue-400/40 underline-offset-2 hover:text-blue-300 hover:decoration-blue-300 transition-colors"
+                        >
+                          {children}
+                        </a>
+                      );
+                    },
                     h1: ({ children }) => (
                       <h2 className="text-2xl font-bold text-white mt-8 mb-4 border-b border-slate-800 pb-2">
                         {children}
