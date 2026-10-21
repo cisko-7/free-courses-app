@@ -22,7 +22,8 @@ import {
   CloudUpload,
   RefreshCw,
   AlertCircle,
-  LogOut
+  LogOut,
+  GraduationCap
 } from 'lucide-react';
 
 // --- СТРОГАЯ ТИПИЗАЦИЯ ---
@@ -32,15 +33,30 @@ export interface TestCase {
   expected: string;
 }
 
+export interface QuizQuestion {
+  question: string;
+  options: string[];
+  correctIndex: number;
+  explanation?: string;
+}
+
 export interface CourseItem {
   id: string;
   title: string;
-  type: 'theory' | 'task';
+  type: 'theory' | 'task' | 'quiz';
   content: string;
   initialCode?: string;
   solution?: string;
   tests?: TestCase[];
+  quizQuestions?: QuizQuestion[];
 }
+
+const createEmptyQuizQuestion = (): QuizQuestion => ({
+  question: 'Новый вопрос',
+  options: ['Вариант A', 'Вариант B'],
+  correctIndex: 0,
+  explanation: ''
+});
 
 export interface CourseModule {
   id: string;
@@ -212,7 +228,7 @@ function isValidCourse(x: unknown): x is Course {
           typeof i.id === 'string' &&
           typeof i.title === 'string' &&
           typeof i.content === 'string' &&
-          (i.type === 'theory' || i.type === 'task')
+          (i.type === 'theory' || i.type === 'task' || i.type === 'quiz')
       )
   );
 }
@@ -232,10 +248,138 @@ function validateCourses(list: Course[]): string[] {
             problems.push(`${c.title} → «${item.title}»: в тестах пустой ожидаемый вывод`);
           }
         }
+        if (item.type === 'quiz') {
+          const questions = item.quizQuestions || [];
+          if (questions.length === 0) {
+            problems.push(`${c.title} → «${item.title}»: в квизе нет вопросов`);
+          }
+          questions.forEach((q, qi) => {
+            const label = `${c.title} → «${item.title}», вопрос ${qi + 1}`;
+            if (!q.question.trim()) problems.push(`${label}: пустой текст вопроса`);
+            if (q.options.length < 2) problems.push(`${label}: нужно минимум 2 варианта`);
+            if (q.options.some((o) => !o.trim())) problems.push(`${label}: пустой вариант ответа`);
+            if (q.correctIndex < 0 || q.correctIndex >= q.options.length) {
+              problems.push(`${label}: не выбран правильный ответ`);
+            }
+          });
+        }
       })
     );
   });
   return problems;
+}
+
+// --- ВИЗУАЛЬНЫЙ РЕДАКТОР ОДНОГО ВОПРОСА КВИЗА ---
+
+interface QuizQuestionEditorProps {
+  itemId: string;
+  index: number;
+  question: QuizQuestion;
+  canDelete: boolean;
+  onUpdate: (patch: Partial<QuizQuestion>) => void;
+  onDelete: () => void;
+  onAddOption: () => void;
+  onUpdateOption: (optIdx: number, value: string) => void;
+  onDeleteOption: (optIdx: number) => void;
+}
+
+function QuizQuestionEditor({
+  itemId,
+  index,
+  question: q,
+  canDelete,
+  onUpdate,
+  onDelete,
+  onAddOption,
+  onUpdateOption,
+  onDeleteOption
+}: QuizQuestionEditorProps) {
+  const letter = (i: number) => String.fromCharCode(65 + i);
+
+  return (
+    <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
+      <div className="flex items-start gap-2">
+        <div className="flex-1 space-y-1">
+          <label htmlFor={`quiz-q-${itemId}-${index}`} className="text-[11px] font-mono text-slate-400">
+            Вопрос #{index + 1}
+          </label>
+          <textarea
+            id={`quiz-q-${itemId}-${index}`}
+            rows={2}
+            value={q.question}
+            onChange={(e) => onUpdate({ question: e.target.value })}
+            className="w-full p-2.5 rounded-lg bg-slate-900 border border-slate-800 text-sm text-white focus:border-violet-500 focus:outline-none"
+          />
+        </div>
+        {canDelete && (
+          <button
+            onClick={onDelete}
+            aria-label={`Удалить вопрос ${index + 1}`}
+            className="mt-5 p-2 rounded-lg bg-rose-950/40 text-rose-400 hover:bg-rose-900/50 cursor-pointer"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <span className="text-[11px] font-mono text-slate-400">Варианты ответа (отметьте правильный):</span>
+        {q.options.map((opt, optIdx) => {
+          const isRight = q.correctIndex === optIdx;
+          return (
+            <div key={optIdx} className="flex items-center gap-2">
+              <input
+                type="radio"
+                name={`quiz-correct-${itemId}-${index}`}
+                checked={isRight}
+                onChange={() => onUpdate({ correctIndex: optIdx })}
+                aria-label={`Вариант ${letter(optIdx)} — правильный ответ`}
+                className="w-4 h-4 accent-emerald-500 cursor-pointer"
+              />
+              <span className="w-5 text-xs font-mono text-slate-500">{letter(optIdx)}</span>
+              <input
+                type="text"
+                value={opt}
+                onChange={(e) => onUpdateOption(optIdx, e.target.value)}
+                aria-label={`Текст варианта ${letter(optIdx)}`}
+                className={`flex-1 px-2.5 py-1.5 rounded-lg bg-slate-900 border text-xs text-white focus:outline-none ${
+                  isRight ? 'border-emerald-500/50 focus:border-emerald-400' : 'border-slate-800 focus:border-violet-500'
+                }`}
+              />
+              {q.options.length > 2 && (
+                <button
+                  onClick={() => onDeleteOption(optIdx)}
+                  aria-label={`Удалить вариант ${letter(optIdx)}`}
+                  className="p-1.5 text-slate-500 hover:text-rose-400 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          );
+        })}
+        <button
+          onClick={onAddOption}
+          className="text-[11px] text-violet-300 hover:text-violet-200 flex items-center gap-1 cursor-pointer"
+        >
+          <Plus className="w-3 h-3" /> Вариант
+        </button>
+      </div>
+
+      <div className="space-y-1">
+        <label htmlFor={`quiz-expl-${itemId}-${index}`} className="text-[11px] font-mono text-slate-400">
+          Объяснение (необязательно):
+        </label>
+        <textarea
+          id={`quiz-expl-${itemId}-${index}`}
+          rows={2}
+          value={q.explanation || ''}
+          onChange={(e) => onUpdate({ explanation: e.target.value })}
+          className="w-full p-2.5 rounded-lg bg-slate-900 border border-slate-800 text-xs text-slate-200 focus:border-violet-500 focus:outline-none"
+        />
+      </div>
+    </div>
+  );
 }
 
 export default function AdminPage() {
@@ -601,13 +745,21 @@ export default function AdminPage() {
 
   // --- ОПЕРАЦИИ С УРОКАМИ И ЗАДАЧАМИ ---
 
-  const handleAddItem = (modId: string, type: 'theory' | 'task') => {
+  const handleAddItem = (modId: string, type: CourseItem['type']) => {
     if (!currentCourse) return;
     const newItemId = `item-${uid()}`;
     const isCpp = currentCourse.langKey === 'cpp';
 
     const newItem: CourseItem =
-      type === 'theory'
+      type === 'quiz'
+        ? {
+            id: newItemId,
+            title: 'Новый тест (Квиз)',
+            type: 'quiz',
+            content: '# Проверьте себя\n\nОтветьте на вопросы ниже.',
+            quizQuestions: [createEmptyQuizQuestion()]
+          }
+        : type === 'theory'
         ? {
             id: newItemId,
             title: 'Новый урок (Теория)',
@@ -692,6 +844,50 @@ export default function AdminPage() {
       tests: currentTests.filter((_, i) => i !== idx)
     });
   };
+
+  // --- ОПЕРАЦИИ С ВОПРОСАМИ КВИЗА ---
+
+  const updateQuizQuestions = (updater: (qs: QuizQuestion[]) => QuizQuestion[]) => {
+    if (!currentItem) return;
+    updateCurrentItem({ quizQuestions: updater(currentItem.quizQuestions || []) });
+  };
+
+  const handleAddQuizQuestion = () =>
+    updateQuizQuestions((qs) => [...qs, createEmptyQuizQuestion()]);
+
+  const handleDeleteQuizQuestion = (qIdx: number) =>
+    updateQuizQuestions((qs) => (qs.length <= 1 ? qs : qs.filter((_, i) => i !== qIdx)));
+
+  const handleUpdateQuizQuestion = (qIdx: number, patch: Partial<QuizQuestion>) =>
+    updateQuizQuestions((qs) => qs.map((q, i) => (i === qIdx ? { ...q, ...patch } : q)));
+
+  const handleAddQuizOption = (qIdx: number) =>
+    updateQuizQuestions((qs) =>
+      qs.map((q, i) =>
+        i === qIdx
+          ? { ...q, options: [...q.options, `Вариант ${String.fromCharCode(65 + q.options.length)}`] }
+          : q
+      )
+    );
+
+  const handleUpdateQuizOption = (qIdx: number, optIdx: number, value: string) =>
+    updateQuizQuestions((qs) =>
+      qs.map((q, i) =>
+        i === qIdx ? { ...q, options: q.options.map((o, oi) => (oi === optIdx ? value : o)) } : q
+      )
+    );
+
+  const handleDeleteQuizOption = (qIdx: number, optIdx: number) =>
+    updateQuizQuestions((qs) =>
+      qs.map((q, i) => {
+        if (i !== qIdx || q.options.length <= 2) return q;
+        // Сдвигаем индекс правильного ответа, чтобы он продолжал указывать на тот же вариант
+        let correctIndex = q.correctIndex;
+        if (optIdx === correctIndex) correctIndex = 0;
+        else if (optIdx < correctIndex) correctIndex -= 1;
+        return { ...q, options: q.options.filter((_, oi) => oi !== optIdx), correctIndex };
+      })
+    );
 
   const handleDownloadJson = () => {
     const blob = new Blob([JSON.stringify(courses, null, 2)], { type: 'application/json' });
@@ -1043,6 +1239,8 @@ export default function AdminPage() {
                             >
                               {item.type === 'theory' ? (
                                 <BookOpen className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" />
+                              ) : item.type === 'quiz' ? (
+                                <GraduationCap className="w-3.5 h-3.5 text-violet-400 flex-shrink-0" />
                               ) : (
                                 <Terminal className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
                               )}
@@ -1063,7 +1261,7 @@ export default function AdminPage() {
                       })}
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2 pt-1">
+                    <div className="grid grid-cols-3 gap-2 pt-1">
                       <button
                         onClick={() => handleAddItem(mod.id, 'theory')}
                         className="py-1.5 px-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-slate-800 text-[11px] font-medium flex items-center justify-center gap-1 cursor-pointer"
@@ -1075,6 +1273,12 @@ export default function AdminPage() {
                         className="py-1.5 px-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-amber-300 border border-slate-800 text-[11px] font-medium flex items-center justify-center gap-1 cursor-pointer"
                       >
                         <Plus className="w-3 h-3" /> Задача
+                      </button>
+                      <button
+                        onClick={() => handleAddItem(mod.id, 'quiz')}
+                        className="py-1.5 px-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-violet-300 border border-slate-800 text-[11px] font-medium flex items-center justify-center gap-1 cursor-pointer"
+                      >
+                        <Plus className="w-3 h-3" /> Квиз
                       </button>
                     </div>
                   </div>
@@ -1242,6 +1446,24 @@ export default function AdminPage() {
                     <Terminal className="w-3.5 h-3.5" />
                     <span>Практическая задача</span>
                   </button>
+                  <button
+                    onClick={() =>
+                      updateCurrentItem({
+                        type: 'quiz',
+                        quizQuestions: currentItem.quizQuestions?.length
+                          ? currentItem.quizQuestions
+                          : [createEmptyQuizQuestion()]
+                      })
+                    }
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer ${
+                      currentItem.type === 'quiz'
+                        ? 'bg-violet-500/20 text-violet-300 border border-violet-500/30'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <GraduationCap className="w-3.5 h-3.5" />
+                    <span>Квиз</span>
+                  </button>
                 </div>
               </div>
 
@@ -1359,6 +1581,38 @@ export default function AdminPage() {
                       ))}
                     </div>
                   </div>
+                </div>
+              )}
+
+              {currentItem.type === 'quiz' && (
+                <div className="space-y-4 pt-2 border-t border-slate-800">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-violet-400 flex items-center gap-1.5">
+                      <GraduationCap className="w-4 h-4" />
+                      Вопросы квиза ({currentItem.quizQuestions?.length || 0})
+                    </h4>
+                    <button
+                      onClick={handleAddQuizQuestion}
+                      className="px-3 py-1.5 rounded-xl bg-violet-500/20 hover:bg-violet-500/30 text-violet-300 border border-violet-500/30 text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Добавить вопрос
+                    </button>
+                  </div>
+
+                  {(currentItem.quizQuestions || []).map((q, qIdx) => (
+                    <QuizQuestionEditor
+                      key={qIdx}
+                      itemId={currentItem.id}
+                      index={qIdx}
+                      question={q}
+                      canDelete={(currentItem.quizQuestions?.length || 0) > 1}
+                      onUpdate={(patch) => handleUpdateQuizQuestion(qIdx, patch)}
+                      onDelete={() => handleDeleteQuizQuestion(qIdx)}
+                      onAddOption={() => handleAddQuizOption(qIdx)}
+                      onUpdateOption={(optIdx, value) => handleUpdateQuizOption(qIdx, optIdx, value)}
+                      onDeleteOption={(optIdx) => handleDeleteQuizOption(qIdx, optIdx)}
+                    />
+                  ))}
                 </div>
               )}
             </div>

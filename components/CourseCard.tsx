@@ -10,7 +10,6 @@ import {
   GraduationCap,
   CheckCircle2,
   PlayCircle,
-  Sparkles,
 } from "lucide-react";
 import { type Course, getTotalItemsCount } from "@/lib/data";
 

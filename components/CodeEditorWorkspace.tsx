@@ -12,7 +12,6 @@ import {
   FileCode2,
   ListFilter,
   ArrowRight,
-  Clock,
   Sparkles,
   Loader2,
 } from "lucide-react";
@@ -32,7 +31,6 @@ interface CodeEditorWorkspaceProps {
 export default function CodeEditorWorkspace({
   item,
   courseLanguage,
-  isCompleted,
   onComplete,
   onNext,
   hasNext,
@@ -57,13 +55,16 @@ export default function CodeEditorWorkspace({
   const [activeTab, setActiveTab] = useState<"results" | "testcases" | "console">("results");
   const [selectedTestIdx, setSelectedTestIdx] = useState(0);
 
-  // Synchronize when switching to a different task
-  useEffect(() => {
+  // Synchronize when switching to a different task.
+  // Корректировка состояния во время рендера (рекомендуемая React замена setState в эффекте)
+  const [syncedItemId, setSyncedItemId] = useState<string>(item.id);
+  if (syncedItemId !== item.id) {
+    setSyncedItemId(item.id);
     setCode(safeGet(storageKey) || item.initialCode || "");
     setTestSuiteResult(null);
     setSelectedTestIdx(0);
     setActiveTab("results");
-  }, [item.id, item.initialCode, storageKey]);
+  }
 
   // Save code changes to LocalStorage
   const handleCodeChange = (newVal?: string) => {

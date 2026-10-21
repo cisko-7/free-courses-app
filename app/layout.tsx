@@ -43,7 +43,7 @@ const csp = [
   "img-src 'self' data: blob: https:",
   "font-src 'self' data: https://cdn.jsdelivr.net",
   // TODO: уберите emkc.org, когда lib/executor.ts перейдёт на NEXT_PUBLIC_RUN_URL
-  `connect-src 'self' ${[supabaseOrigin, runOrigin, "https://cdn.jsdelivr.net", "https://emkc.org"].filter(Boolean).join(" ")}`,
+  `connect-src 'self' ${[supabaseOrigin, runOrigin, "https://cdn.jsdelivr.net", "https://emkc.org", "https://api.emailjs.com"].filter(Boolean).join(" ")}`,
   "worker-src 'self' blob:",
   "object-src 'none'",
   "base-uri 'self'",
@@ -58,6 +58,8 @@ export const metadata: Metadata = {
   title: { default: siteTitle, template: "%s · DevCourses" },
   description: siteDescription,
   applicationName: "DevCourses",
+  manifest: "/manifest.json",
+  icons: { icon: { url: "/icon.svg", type: "image/svg+xml" } },
   openGraph: {
     type: "website",
     locale: "ru_RU",
@@ -70,8 +72,9 @@ export const metadata: Metadata = {
   robots: { index: true, follow: true },
 };
 
+// В Next.js 14+ themeColor в metadata устарел — он задаётся через viewport
 export const viewport: Viewport = {
-  themeColor: "#131211",
+  themeColor: "#2563eb",
   colorScheme: "dark",
 };
 

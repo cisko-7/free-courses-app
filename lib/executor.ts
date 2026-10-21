@@ -110,7 +110,7 @@ async function executeOnPiston(
     const compile = data.compile || {};
     const run = data.run || {};
 
-    const compileError = compile.stderr || compile.output || "";
+    const compileError = stripAnsi(compile.stderr || compile.output || "");
     const isCompileFailed = compile.code && compile.code !== 0;
 
     if (isCompileFailed) {
@@ -126,7 +126,7 @@ async function executeOnPiston(
 
     return {
       stdout: run.stdout || run.output || "",
-      stderr: run.stderr || "",
+      stderr: stripAnsi(run.stderr || ""),
       exitCode: run.code ?? 0,
       durationMs: Date.now() - startTime,
       runner: "piston",
@@ -135,6 +135,13 @@ async function executeOnPiston(
     clearTimeout(timeoutId);
     return null;
   }
+}
+
+/**
+ * Убирает ANSI-коды цвета (ESC[01;31m и т.п.) из диагностики GCC — браузер показывает их как мусор.
+ */
+function stripAnsi(text: string): string {
+  return text.replace(/\u001b\[[0-9;?]*[A-Za-z]/g, "");
 }
 
 /**
@@ -170,20 +177,20 @@ async function executeOnWandbox(
     }
 
     const data = await res.json();
-    const compileError = data.compiler_error || data.compiler_message || "";
+    const compileError = stripAnsi(data.compiler_error || data.compiler_message || "");
     const isCompileError = data.status !== "0" && compileError.length > 0;
 
     return {
       stdout: data.program_output || "",
-      stderr: data.program_error || (isCompileError ? compileError : ""),
+      stderr: stripAnsi(data.program_error || "") || (isCompileError ? compileError : ""),
       compileError: isCompileError ? compileError : undefined,
       exitCode: parseInt(data.status, 10) || 0,
       durationMs: Date.now() - startTime,
       runner: "wandbox",
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     clearTimeout(timeoutId);
-    throw new Error(error.message || "Failed to execute code in sandbox");
+    throw new Error((error instanceof Error && error.message) || "Failed to execute code in sandbox");
   }
 }
 
@@ -282,14 +289,14 @@ export async function runTestCases(
         }
         break;
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       results.push({
         testIndex: i + 1,
         input: test.input,
         expected: test.expected,
         actual: "",
         passed: false,
-        stderr: err?.message || "Неизвестная ошибка выполнения",
+        stderr: (err instanceof Error && err.message) || "Неизвестная ошибка выполнения",
       });
     }
   }

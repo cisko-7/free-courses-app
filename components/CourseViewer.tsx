@@ -15,17 +15,10 @@ import {
   X,
   BookOpen,
   Terminal,
-  Code2,
   ChevronDown,
   ChevronRight,
-  Eye,
-  EyeOff,
   Trophy,
   Award,
-  Sparkles,
-  Check,
-  Copy,
-  Layers,
 } from "lucide-react";
 import { type Course, getAllCourseItems } from "@/lib/data";
 import { useProgress } from "@/hooks/useProgress";
@@ -61,8 +54,6 @@ function CourseViewerContent({ course }: CourseViewerProps) {
     initialLesson?.id || allItems[0]?.id || ""
   );
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [solutionOpen, setSolutionOpen] = useState(false);
-  const [copiedSolution, setCopiedSolution] = useState(false);
 
   // Accordion state for topics: open by default
   const [expandedTopics, setExpandedTopics] = useState<Record<string, boolean>>(() => {
@@ -88,17 +79,18 @@ function CourseViewerContent({ course }: CourseViewerProps) {
     ? completedLessons.includes(currentItem.id)
     : false;
 
-  // Auto-expand topic containing current item
-  useEffect(() => {
-    if (currentItem?.topicId) {
+  // Auto-expand topic containing current item.
+  // Корректировка состояния во время рендера при смене урока (рекомендуемая React замена setState в эффекте)
+  const [expandedForItemId, setExpandedForItemId] = useState<string | undefined>(undefined);
+  if (currentItem && currentItem.id !== expandedForItemId) {
+    setExpandedForItemId(currentItem.id);
+    if (currentItem.topicId) {
       setExpandedTopics((prev) => ({
         ...prev,
         [currentItem.topicId]: true,
       }));
     }
-    setSolutionOpen(false);
-    setCopiedSolution(false);
-  }, [currentItem?.id, currentItem?.topicId]);
+  }
 
   // Toggle topic accordion
   const toggleTopic = (topicId: string) => {
@@ -125,15 +117,6 @@ function CourseViewerContent({ course }: CourseViewerProps) {
     }
     if (nextItem) {
       handleSelectLesson(nextItem.id);
-    }
-  };
-
-  // Copy solution code
-  const handleCopySolution = () => {
-    if (currentItem?.solution) {
-      navigator.clipboard.writeText(currentItem.solution);
-      setCopiedSolution(true);
-      setTimeout(() => setCopiedSolution(false), 2000);
     }
   };
 
@@ -446,74 +429,7 @@ function CourseViewerContent({ course }: CourseViewerProps) {
                   </Markdown>
                 </div>
 
-                {/* Reference Solution Spoiler */}
-                {currentItem.solution && (
-                  <div className="rounded-xl border border-amber-500/20 bg-slate-900/60 overflow-hidden mb-6">
-                    <div className="p-3 bg-amber-500/5 flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Code2 className="w-4 h-4 text-amber-400" />
-                        <span className="text-xs font-semibold text-slate-200">
-                          Эталонное решение
-                        </span>
-                      </div>
-                      <button
-                        onClick={() => setSolutionOpen(!solutionOpen)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/20 transition-colors"
-                      >
-                        {solutionOpen ? (
-                          <>
-                            <EyeOff className="w-3.5 h-3.5" />
-                            <span>Скрыть</span>
-                          </>
-                        ) : (
-                          <>
-                            <Eye className="w-3.5 h-3.5" />
-                            <span>Показать</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
 
-                    {solutionOpen && (
-                      <div className="p-3 bg-[#1e1e1e] border-t border-slate-800">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-[11px] font-mono text-slate-400">
-                            {course.language}
-                          </span>
-                          <button
-                            onClick={handleCopySolution}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] bg-slate-800 hover:bg-slate-700 text-slate-300"
-                          >
-                            {copiedSolution ? (
-                              <>
-                                <Check className="w-3 h-3 text-emerald-400" />
-                                <span className="text-emerald-400">Скопировано</span>
-                              </>
-                            ) : (
-                              <>
-                                <Copy className="w-3 h-3" />
-                                <span>Копировать</span>
-                              </>
-                            )}
-                          </button>
-                        </div>
-                        <SyntaxHighlighter
-                          style={vscDarkPlus}
-                          language={course.language.toLowerCase().includes("python") ? "python" : "cpp"}
-                          PreTag="div"
-                          customStyle={{
-                            margin: 0,
-                            padding: "0.75rem",
-                            background: "transparent",
-                            fontSize: "0.8rem",
-                          }}
-                        >
-                          {currentItem.solution}
-                        </SyntaxHighlighter>
-                      </div>
-                    )}
-                  </div>
-                )}
 
                 {/* Bottom navigation link for previous lesson */}
                 <div className="pt-4 border-t border-slate-800/80 flex items-center justify-between">

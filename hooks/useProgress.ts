@@ -11,7 +11,9 @@ export function useProgress() {
   const [enrolledCourses, setEnrolledCourses] = useState<string[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
 
-  // Read progress and enrolled courses after mount to prevent hydration mismatch
+  // Read progress and enrolled courses after mount to prevent hydration mismatch.
+  // Однократная загрузка из внешнего хранилища после монтирования — осознанный setState в эффекте.
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     try {
       const savedCompleted = localStorage.getItem(COMPLETED_STORAGE_KEY);
@@ -35,6 +37,7 @@ export function useProgress() {
       setIsLoaded(true);
     }
   }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // Mark lesson as complete and persist
   const markLessonComplete = useCallback((lessonId: string) => {

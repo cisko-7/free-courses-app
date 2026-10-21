@@ -1,0 +1,7 @@
+{
+  // Tailwind CSS v4 использует @theme, @custom-variant и т.п. — встроенный CSS-валидатор VS Code их не знает
+  "css.lint.unknownAtRules": "ignore",
+  "files.associations": {
+    "*.css": "tailwindcss"
+  }
+}

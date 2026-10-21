@@ -76,7 +76,7 @@ export function isCourseShape(x: unknown): boolean {
           typeof it.id === "string" &&
           typeof it.title === "string" &&
           typeof it.content === "string" &&
-          (it.type === "theory" || it.type === "task")
+          (it.type === "theory" || it.type === "task" || it.type === "quiz")
         );
       })
     );
