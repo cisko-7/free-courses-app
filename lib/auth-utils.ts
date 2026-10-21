@@ -56,7 +56,14 @@ const AUTH_ERROR_RULES: ReadonlyArray<readonly [RegExp, string]> = [
   [/same.*password|different from the old/i, 'Новый пароль должен отличаться от старого.'],
   [/weak password|pwned/i, 'Пароль слишком простой или найден в утечках. Придумайте другой.'],
   [/rate limit|too many requests|security purposes/i, 'Слишком много попыток. Подождите минуту и повторите.'],
-  [/invalid.*email|unable to validate email/i, 'Некорректный формат Email.'],
+  [/invalid.*email|email address .* is invalid|unable to validate email|email_address_invalid/i, 'Supabase отклонил этот Email. Проверьте адрес или используйте другой.'],
+  [/email.*not authorized|email_address_not_authorized/i, 'Supabase разрешает отправку только адресам команды проекта. Выключите «Confirm email» или настройте SMTP.'],
+  // Ошибки базы данных (PostgREST): обычно значит, что supabase/schema.sql ещё не выполнен
+  [/could not find the .* column|schema cache|relation .* does not exist|PGRST204|PGRST205/i, 'База данных не настроена: выполните supabase/schema.sql в SQL Editor Supabase.'],
+  [/no unique or exclusion constraint|ON CONFLICT/i, 'В таблице user_accounts нет уникального email. Выполните supabase/schema.sql.'],
+  [/row-level security|permission denied|42501/i, 'Нет прав на запись в базу (RLS). Выполните supabase/schema.sql.'],
+  [/violates check constraint|23514/i, 'Данные профиля не прошли проверку (слишком длинное имя, био или код).'],
+  [/duplicate key|23505/i, 'Профиль с этим Email уже существует. Попробуйте войти.'],
   [/jwt expired|session.*(missing|expired)|refresh token/i, 'Сессия истекла. Войдите снова.'],
   [/signups not allowed|signup.*disabled/i, 'Регистрация временно отключена.']
 ];
@@ -72,7 +79,8 @@ export function translateAuthError(message: string | null | undefined): string {
   for (const [re, text] of AUTH_ERROR_RULES) {
     if (re.test(message)) return text;
   }
-  return 'Не удалось выполнить операцию. Попробуйте ещё раз.';
+  // Показываем исходный текст: без него ошибку 400 невозможно диагностировать
+  return `Не удалось выполнить операцию: ${message.slice(0, 200)}`;
 }
 
 // --- ВАЛИДАЦИЯ ---

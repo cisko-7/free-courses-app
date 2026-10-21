@@ -2756,7 +2756,8 @@ export default function App() {
         });
 
         if (signUpError) {
-          setAuthError(translateAuthError(signUpError.message));
+          console.error('Supabase signUp error:', signUpError.status, signUpError.code, signUpError.message);
+          setAuthError(translateAuthError(`${signUpError.code ?? ''} ${signUpError.message}`));
           return;
         }
 
@@ -2776,7 +2777,8 @@ export default function App() {
             .from('user_accounts')
             .upsert([localProfile], { onConflict: 'email' });
           if (upsertError) {
-            setAuthError(translateAuthError(upsertError.message));
+            console.error('Supabase upsert user_accounts error:', upsertError.code, upsertError.message, upsertError.details, upsertError.hint);
+            setAuthError(translateAuthError(`${upsertError.code} ${upsertError.message}`));
             return;
           }
           applyAccount(localProfile);
