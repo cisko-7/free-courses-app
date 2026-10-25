@@ -1,1624 +1,185 @@
-"use client";
+'use client';
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import Link from 'next/link';
+import { memo, useCallback, useEffect, useState } from 'react';
+import { KeyRound, LayoutDashboard, Mail, FileText, Settings, Users, Shield } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import {
-  Plus,
-  Trash2,
-  BookOpen,
-  Terminal,
-  ArrowLeft,
-  Layers,
-  Tag,
-  FileCode,
-  Sparkles,
-  RotateCcw,
-  CheckCircle2,
-  Download,
-  Upload,
-  FolderPlus,
-  Settings,
-  CloudUpload,
-  RefreshCw,
-  AlertCircle,
-  LogOut,
-  GraduationCap
-} from 'lucide-react';
+import { useAttemptLimiter } from '@/hooks/useAttemptLimiter';
+import { ErrorNote, inputClass, Loading, primaryButton } from '@/components/admin/ui';
+import AdminOverview from '@/components/admin/AdminOverview';
+import AdminUsers from '@/components/admin/AdminUsers';
+import AdminSiteSettings from '@/components/admin/AdminSiteSettings';
+import AdminEmailLogs from '@/components/admin/AdminEmailLogs';
+import AdminAuditLog from '@/components/admin/AdminAuditLog';
+import AdminSecurity from '@/components/admin/AdminSecurity';
 
-// --- СТРОГАЯ ТИПИЗАЦИЯ ---
+type Tab = 'overview' | 'users' | 'settings' | 'email' | 'audit' | 'security';
 
-export interface TestCase {
-  input: string;
-  expected: string;
-}
-
-export interface QuizQuestion {
-  question: string;
-  options: string[];
-  correctIndex: number;
-  explanation?: string;
-}
-
-export interface CourseItem {
-  id: string;
-  title: string;
-  type: 'theory' | 'task' | 'quiz';
-  content: string;
-  initialCode?: string;
-  solution?: string;
-  tests?: TestCase[];
-  quizQuestions?: QuizQuestion[];
-}
-
-const createEmptyQuizQuestion = (): QuizQuestion => ({
-  question: 'Новый вопрос',
-  options: ['Вариант A', 'Вариант B'],
-  correctIndex: 0,
-  explanation: ''
-});
-
-export interface CourseModule {
-  id: string;
-  title: string;
-  items: CourseItem[];
-}
-
-export interface Course {
-  id: string;
-  title: string;
-  language: string;
-  langKey: 'cpp' | 'python';
-  level: string;
-  duration: string;
-  accent: string;
-  badgeBg: string;
-  description: string;
-  skills?: string[];
-  modules: CourseModule[];
-}
-
-const DEFAULT_COURSES: Course[] = [
-  {
-    id: 'cpp-basics',
-    title: 'C++: С нуля до первого проекта',
-    language: 'C++',
-    langKey: 'cpp',
-    level: 'Начинающий',
-    duration: '14 часов',
-    accent: 'from-blue-600 to-cyan-500',
-    badgeBg: 'bg-blue-500/15 text-blue-400 border-blue-500/30',
-    description:
-      'Фундаментальный практический курс по современному C++ (C++17/20). Потоки ввода-вывода, управление памятью, динамические массивы std::vector и алгоритмические задачи.',
-    skills: ['Синтаксис C++17', 'Потоки iostream', 'std::vector', 'Алгоритмы'],
-    modules: [
-      {
-        id: 'cpp-mod-1',
-        title: 'Модуль 1. Основы синтаксиса C++',
-        items: [
-          {
-            id: 'cpp-1-theory',
-            title: 'Структура программы, iostream и переменные',
-            type: 'theory',
-            content: `# Введение в современный C++\n\nКаждая программа на C++ начинается с функции \`main()\`.\n\n\`\`\`cpp\n#include <iostream>\n\nint main() {\n    std::cout << "Привет, мир C++!" << std::endl;\n    return 0;\n}\n\`\`\``
-          },
-          {
-            id: 'cpp-1-task-1',
-            title: 'Задача: Сумма двух чисел',
-            type: 'task',
-            content: `# Задача: Сумма двух чисел\n\nСчитайте два целых числа $A$ и $B$ из \`std::cin\` и выведите их сумму.`,
-            initialCode: `#include <iostream>\n\nint main() {\n    int a, b;\n    // Ваш код здесь\n    return 0;\n}`,
-            solution: `#include <iostream>\n\nint main() {\n    int a, b;\n    if (std::cin >> a >> b) std::cout << (a + b) << "\\n";\n    return 0;\n}`,
-            tests: [
-              { input: '2 3', expected: '5' },
-              { input: '10 -4', expected: '6' },
-              { input: '100 250', expected: '350' }
-            ]
-          },
-          {
-            id: 'cpp-1-task-2',
-            title: 'Задача: Чётное или нечётное',
-            type: 'task',
-            content: `# Задача: Чётное или нечётное\n\nДано целое число $N$. Если оно делится на 2 без остатка, выведите \`EVEN\`, иначе \`ODD\`.`,
-            initialCode: `#include <iostream>\n\nint main() {\n    int n;\n    std::cin >> n;\n    return 0;\n}`,
-            solution: `#include <iostream>\n\nint main() {\n    int n;\n    if (std::cin >> n) {\n        if (n % 2 == 0) std::cout << "EVEN\\n";\n        else std::cout << "ODD\\n";\n    }\n    return 0;\n}`,
-            tests: [
-              { input: '4', expected: 'EVEN' },
-              { input: '7', expected: 'ODD' },
-              { input: '0', expected: 'EVEN' }
-            ]
-          }
-        ]
-      },
-      {
-        id: 'cpp-mod-2',
-        title: 'Модуль 2. Массивы и std::vector',
-        items: [
-          {
-            id: 'cpp-2-theory',
-            title: 'Динамические массивы std::vector',
-            type: 'theory',
-            content: `# Массивы и std::vector в C++\n\nВ современном C++ используется динамический контейнер \`std::vector\` из библиотеки \`<vector>\`.`
-          },
-          {
-            id: 'cpp-2-task-1',
-            title: 'Задача: Максимум в массиве',
-            type: 'task',
-            content: `# Задача: Максимум в массиве\n\nНайдите максимальный элемент в массиве из $N$ целых чисел.`,
-            initialCode: `#include <iostream>\n#include <vector>\n\nint main() {\n    int n;\n    if (!(std::cin >> n)) return 0;\n    std::vector<int> a(n);\n    for (int i = 0; i < n; ++i) std::cin >> a[i];\n    return 0;\n}`,
-            solution: `#include <iostream>\n#include <vector>\n\nint main() {\n    int n;\n    if (!(std::cin >> n)) return 0;\n    std::vector<int> a(n);\n    for (int i = 0; i < n; ++i) std::cin >> a[i];\n    int max_val = a[0];\n    for (int i = 1; i < n; ++i) if (a[i] > max_val) max_val = a[i];\n    std::cout << max_val << "\\n";\n    return 0;\n}`,
-            tests: [
-              { input: '5\n1 9 3 7 2', expected: '9' },
-              { input: '3\n-5 -2 -10', expected: '-2' }
-            ]
-          }
-        ]
-      }
-    ]
-  },
-  {
-    id: 'python-basics',
-    title: 'Python: Основы, алгоритмы и скрипты',
-    language: 'Python',
-    langKey: 'python',
-    level: 'Начинающий',
-    duration: '12 часов',
-    accent: 'from-amber-500 to-yellow-400',
-    badgeBg: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
-    description:
-      'Практический старт в Python 3: чистый синтаксис, динамическая типизация, f-строки, списки и написание функций.',
-    skills: ['Python 3', 'f-строки', 'Списки (Lists)', 'Функции'],
-    modules: [
-      {
-        id: 'py-mod-1',
-        title: 'Модуль 1. Быстрый старт в Python',
-        items: [
-          {
-            id: 'py-1-theory',
-            title: 'Переменные, f-строки и условия',
-            type: 'theory',
-            content: `# Основы языка Python\n\nВ Python блоки кода выделяются отступами.\n\n\`\`\`python\nname = "Кирилл"\nprint(f"Привет, {name}!")\n\`\`\``
-          },
-          {
-            id: 'py-1-task-1',
-            title: 'Задача: Приветствие разработчика',
-            type: 'task',
-            content: `# Задача: Приветствие разработчика\n\nСчитайте имя через \`input()\` и выведите \`Привет, <имя>!\`.`,
-            initialCode: `name = input()\n# Выведите приветствие:\n`,
-            solution: `name = input().strip()\nprint(f"Привет, {name}!")`,
-            tests: [
-              { input: 'Кирилл', expected: 'Привет, Кирилл!' },
-              { input: 'Анна', expected: 'Привет, Анна!' }
-            ]
-          }
-        ]
-      }
-    ]
-  }
+const TABS: Array<{ id: Tab; label: string; icon: React.ReactNode }> = [
+  { id: 'overview', label: 'Обзор', icon: <LayoutDashboard className="w-4 h-4" /> },
+  { id: 'users', label: 'Пользователи', icon: <Users className="w-4 h-4" /> },
+  { id: 'settings', label: 'Настройки', icon: <Settings className="w-4 h-4" /> },
+  { id: 'email', label: 'Email', icon: <Mail className="w-4 h-4" /> },
+  { id: 'audit', label: 'Журнал', icon: <FileText className="w-4 h-4" /> },
+  { id: 'security', label: 'ПИН', icon: <Shield className="w-4 h-4" /> }
 ];
 
-// Короткий уникальный id (раньше брались 4–5 последних цифр Date.now() — возможны коллизии)
-const uid = (): string =>
-  (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}${Math.random()}`)
-    .replace(/[^a-z0-9]/gi, '')
-    .slice(0, 8);
-
-// Права администратора хранятся в app_metadata — клиент не может изменить это поле
-const hasAdminRole = (
-  session: { user?: { app_metadata?: Record<string, unknown> } } | null | undefined
-): boolean => session?.user?.app_metadata?.role === 'admin';
-
-function isValidCourse(x: unknown): x is Course {
-  if (!x || typeof x !== 'object') return false;
-  const c = x as Partial<Course>;
-  const strings = [c.id, c.title, c.language, c.level, c.duration, c.accent, c.badgeBg, c.description];
-  if (!strings.every((v) => typeof v === 'string')) return false;
-  if (c.langKey !== 'cpp' && c.langKey !== 'python') return false;
-  if (!Array.isArray(c.modules) || c.modules.length === 0) return false;
-  return c.modules.every(
-    (m) =>
-      !!m &&
-      typeof m.id === 'string' &&
-      typeof m.title === 'string' &&
-      Array.isArray(m.items) &&
-      m.items.length > 0 &&
-      m.items.every(
-        (i) =>
-          !!i &&
-          typeof i.id === 'string' &&
-          typeof i.title === 'string' &&
-          typeof i.content === 'string' &&
-          (i.type === 'theory' || i.type === 'task' || i.type === 'quiz')
-      )
-  );
+async function checkPinRequired(): Promise<{ required: boolean; error: string }> {
+  try {
+    const { data, error } = await supabase.rpc('admin_pin_status');
+    if (error) return { required: false, error: error.message };
+    const r = (data ?? {}) as Record<string, unknown>;
+    return { required: r.is_set === true, error: '' };
+  } catch {
+    return { required: false, error: 'Ошибка сети.' };
+  }
 }
 
-function validateCourses(list: Course[]): string[] {
-  const problems: string[] = [];
-  list.forEach((c) => {
-    if (!c.title.trim()) problems.push(`Курс «${c.id}»: пустое название`);
-    c.modules.forEach((m) =>
-      m.items.forEach((item) => {
-        if (!item.title.trim()) problems.push(`${c.title}: урок без названия`);
-        if (item.type === 'task') {
-          const tests = item.tests || [];
-          if (tests.length === 0) {
-            problems.push(`${c.title} → «${item.title}»: у задачи нет тестов`);
-          } else if (tests.some((t) => !t.expected.trim())) {
-            problems.push(`${c.title} → «${item.title}»: в тестах пустой ожидаемый вывод`);
-          }
-        }
-        if (item.type === 'quiz') {
-          const questions = item.quizQuestions || [];
-          if (questions.length === 0) {
-            problems.push(`${c.title} → «${item.title}»: в квизе нет вопросов`);
-          }
-          questions.forEach((q, qi) => {
-            const label = `${c.title} → «${item.title}», вопрос ${qi + 1}`;
-            if (!q.question.trim()) problems.push(`${label}: пустой текст вопроса`);
-            if (q.options.length < 2) problems.push(`${label}: нужно минимум 2 варианта`);
-            if (q.options.some((o) => !o.trim())) problems.push(`${label}: пустой вариант ответа`);
-            if (q.correctIndex < 0 || q.correctIndex >= q.options.length) {
-              problems.push(`${label}: не выбран правильный ответ`);
-            }
-          });
-        }
-      })
-    );
-  });
-  return problems;
+async function verifyPin(pin: string): Promise<{ ok: boolean; message: string }> {
+  try {
+    const { data, error } = await supabase.rpc('admin_verify_pin', { pin });
+    if (error) return { ok: false, message: error.message };
+    if (data === true) return { ok: true, message: '' };
+    return { ok: false, message: 'Неверный ПИН.' };
+  } catch {
+    return { ok: false, message: 'Ошибка сети.' };
+  }
 }
 
-// --- ВИЗУАЛЬНЫЙ РЕДАКТОР ОДНОГО ВОПРОСА КВИЗА ---
+function AdminDashboard() {
+  const [authStatus, setAuthStatus] = useState<'checking' | 'need_pin' | 'ready'>('checking');
+  const [activeTab, setActiveTab] = useState<Tab>('overview');
+  const [pinInput, setPinInput] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
+  const { lockedForSec, tryAttempt, reset } = useAttemptLimiter('admin-pin', 5, 300_000);
 
-interface QuizQuestionEditorProps {
-  itemId: string;
-  index: number;
-  question: QuizQuestion;
-  canDelete: boolean;
-  onUpdate: (patch: Partial<QuizQuestion>) => void;
-  onDelete: () => void;
-  onAddOption: () => void;
-  onUpdateOption: (optIdx: number, value: string) => void;
-  onDeleteOption: (optIdx: number) => void;
-}
-
-function QuizQuestionEditor({
-  itemId,
-  index,
-  question: q,
-  canDelete,
-  onUpdate,
-  onDelete,
-  onAddOption,
-  onUpdateOption,
-  onDeleteOption
-}: QuizQuestionEditorProps) {
-  const letter = (i: number) => String.fromCharCode(65 + i);
-
-  return (
-    <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
-      <div className="flex items-start gap-2">
-        <div className="flex-1 space-y-1">
-          <label htmlFor={`quiz-q-${itemId}-${index}`} className="text-[11px] font-mono text-slate-400">
-            Вопрос #{index + 1}
-          </label>
-          <textarea
-            id={`quiz-q-${itemId}-${index}`}
-            rows={2}
-            value={q.question}
-            onChange={(e) => onUpdate({ question: e.target.value })}
-            className="w-full p-2.5 rounded-lg bg-slate-900 border border-slate-800 text-sm text-white focus:border-violet-500 focus:outline-none"
-          />
-        </div>
-        {canDelete && (
-          <button
-            onClick={onDelete}
-            aria-label={`Удалить вопрос ${index + 1}`}
-            className="mt-5 p-2 rounded-lg bg-rose-950/40 text-rose-400 hover:bg-rose-900/50 cursor-pointer"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
-        )}
-      </div>
-
-      <div className="space-y-2">
-        <span className="text-[11px] font-mono text-slate-400">Варианты ответа (отметьте правильный):</span>
-        {q.options.map((opt, optIdx) => {
-          const isRight = q.correctIndex === optIdx;
-          return (
-            <div key={optIdx} className="flex items-center gap-2">
-              <input
-                type="radio"
-                name={`quiz-correct-${itemId}-${index}`}
-                checked={isRight}
-                onChange={() => onUpdate({ correctIndex: optIdx })}
-                aria-label={`Вариант ${letter(optIdx)} — правильный ответ`}
-                className="w-4 h-4 accent-emerald-500 cursor-pointer"
-              />
-              <span className="w-5 text-xs font-mono text-slate-500">{letter(optIdx)}</span>
-              <input
-                type="text"
-                value={opt}
-                onChange={(e) => onUpdateOption(optIdx, e.target.value)}
-                aria-label={`Текст варианта ${letter(optIdx)}`}
-                className={`flex-1 px-2.5 py-1.5 rounded-lg bg-slate-900 border text-xs text-white focus:outline-none ${
-                  isRight ? 'border-emerald-500/50 focus:border-emerald-400' : 'border-slate-800 focus:border-violet-500'
-                }`}
-              />
-              {q.options.length > 2 && (
-                <button
-                  onClick={() => onDeleteOption(optIdx)}
-                  aria-label={`Удалить вариант ${letter(optIdx)}`}
-                  className="p-1.5 text-slate-500 hover:text-rose-400 cursor-pointer"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-          );
-        })}
-        <button
-          onClick={onAddOption}
-          className="text-[11px] text-violet-300 hover:text-violet-200 flex items-center gap-1 cursor-pointer"
-        >
-          <Plus className="w-3 h-3" /> Вариант
-        </button>
-      </div>
-
-      <div className="space-y-1">
-        <label htmlFor={`quiz-expl-${itemId}-${index}`} className="text-[11px] font-mono text-slate-400">
-          Объяснение (необязательно):
-        </label>
-        <textarea
-          id={`quiz-expl-${itemId}-${index}`}
-          rows={2}
-          value={q.explanation || ''}
-          onChange={(e) => onUpdate({ explanation: e.target.value })}
-          className="w-full p-2.5 rounded-lg bg-slate-900 border border-slate-800 text-xs text-slate-200 focus:border-violet-500 focus:outline-none"
-        />
-      </div>
-    </div>
-  );
-}
-
-export default function AdminPage() {
-  const [courses, setCourses] = useState<Course[]>(DEFAULT_COURSES);
-  const [isAdmin, setIsAdmin] = useState<boolean>(false);
-  const [authChecked, setAuthChecked] = useState<boolean>(false);
-  const [adminEmail, setAdminEmail] = useState<string>('');
-  const [adminPassword, setAdminPassword] = useState<string>('');
-  const [loginError, setLoginError] = useState<string | null>(null);
-  const [loginLoading, setLoginLoading] = useState<boolean>(false);
-  const [isHydrated, setIsHydrated] = useState<boolean>(false);
-
-  const [selectedCourseId, setSelectedCourseId] = useState<string>('cpp-basics');
-  const [selectedModuleId, setSelectedModuleId] = useState<string>('cpp-mod-1');
-  const [selectedItemId, setSelectedItemId] = useState<string>('cpp-1-theory');
-
-  const [activeRightPanel, setActiveRightPanel] = useState<'course-settings' | 'item-editor'>('item-editor');
-  const [newSkillText, setNewSkillText] = useState<string>('');
-
-  // Статусы синхронизации с Supabase
-  const [isSyncingCloud, setIsSyncingCloud] = useState<boolean>(false);
-  const [cloudStatus, setCloudStatus] = useState<string>('Загрузка из облака...');
-  const [cloudError, setCloudError] = useState<string | null>(null);
-  const [cloudTone, setCloudTone] = useState<'ok' | 'warn' | 'error'>('warn');
-  const [hasUnsaved, setHasUnsaved] = useState<boolean>(false);
-
-  const setStatus = useCallback((text: string, tone: 'ok' | 'warn' | 'error', unsaved?: boolean) => {
-    setCloudStatus(text);
-    setCloudTone(tone);
-    if (unsaved !== undefined) setHasUnsaved(unsaved);
-  }, []);
-
-  // Загрузка курсов: сначала из Supabase, если база пустая — из localStorage или стандартные
   useEffect(() => {
-    if (!isAdmin) return;
-    let isMounted = true;
-
-    async function loadInitialCourses() {
-      try {
-        const { data, error } = await supabase
-          .from('courses')
-          .select('data')
-          .order('created_at', { ascending: true });
-
-        // Берём из облака только строки с корректной структурой курса
-        const loadedCourses = (data ?? []).map((row: { data: unknown }) => row.data).filter(isValidCourse);
-        if (!error && loadedCourses.length > 0 && isMounted) {
-          setCourses(loadedCourses);
-          setSelectedCourseId(loadedCourses[0].id);
-          const firstMod = loadedCourses[0].modules[0];
-          if (firstMod) {
-            setSelectedModuleId(firstMod.id);
-            if (firstMod.items[0]) setSelectedItemId(firstMod.items[0].id);
-          }
-          localStorage.setItem('dc_custom_courses', JSON.stringify(loadedCourses));
-          setStatus('Синхронизировано с Supabase ☁️', 'ok', false);
-          setIsHydrated(true);
-          return;
-        }
-      } catch {
-        // Fallback на локальное хранилище
+    let alive = true;
+    void checkPinRequired().then(({ required, error }) => {
+      if (!alive) return;
+      if (error) {
+        setErrorMsg(error);
+        setAuthStatus('ready');
+      } else {
+        setAuthStatus(required ? 'need_pin' : 'ready');
       }
-
-      if (!isMounted) return;
-      try {
-        const saved = localStorage.getItem('dc_custom_courses');
-        if (saved) {
-          const parsed: unknown = JSON.parse(saved);
-          if (Array.isArray(parsed) && parsed.length > 0 && parsed.every(isValidCourse)) {
-            setCourses(parsed);
-            setSelectedCourseId(parsed[0].id);
-          }
-        }
-        setStatus('Локальный режим (нажмите «Опубликовать в облако»)', 'warn', true);
-      } catch {
-        // Игнорируем ошибку
-      } finally {
-        setIsHydrated(true);
-      }
-    }
-
-    loadInitialCourses();
-    return () => {
-      isMounted = false;
-    };
-  }, [isAdmin, setStatus]);
-
-  // Проверка сессии Supabase и роли администратора
-  useEffect(() => {
-    let mounted = true;
-
-    supabase.auth
-      .getSession()
-      .then(({ data }) => {
-        if (!mounted) return;
-        setIsAdmin(hasAdminRole(data.session));
-        setAuthChecked(true);
-      })
-      .catch(() => {
-        if (mounted) setAuthChecked(true);
-      });
-
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      setIsAdmin(hasAdminRole(session));
     });
-
     return () => {
-      mounted = false;
-      sub.subscription.unsubscribe();
+      alive = false;
     };
   }, []);
 
-  // Предупреждение при закрытии вкладки с неопубликованными изменениями
-  useEffect(() => {
-    if (!hasUnsaved) return;
-    const handler = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-      e.returnValue = '';
-    };
-    window.addEventListener('beforeunload', handler);
-    return () => window.removeEventListener('beforeunload', handler);
-  }, [hasUnsaved]);
-
-  const handleAdminLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoginError(null);
-    setLoginLoading(true);
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: adminEmail.trim().toLowerCase(),
-        password: adminPassword
-      });
-      if (error || !data.session) {
-        setLoginError('Неверный Email или пароль.');
-        return;
-      }
-      if (!hasAdminRole(data.session)) {
-        await supabase.auth.signOut();
-        setLoginError('У этого аккаунта нет прав администратора.');
-        return;
-      }
-      setAdminPassword('');
-    } catch {
-      setLoginError('Не удалось подключиться к Supabase.');
-    } finally {
-      setLoginLoading(false);
-    }
-  };
-
-  const handleAdminLogout = async () => {
-    try {
-      await supabase.auth.signOut();
-    } catch {
-      // Выходим локально в любом случае
-    }
-    setIsAdmin(false);
-  };
-
-  // Локальный бэкап при каждом изменении
-  useEffect(() => {
-    if (!isHydrated) return;
-    try {
-      localStorage.setItem('dc_custom_courses', JSON.stringify(courses));
-    } catch {
-      // Игнорируем переполнение
-    }
-  }, [courses, isHydrated]);
-
-  // Функция сохранения всех курсов в облако Supabase
-  const handleSaveToSupabase = async () => {
-    const problems = validateCourses(courses);
-    if (problems.length > 0) {
-      const more = problems.length > 5 ? `\n…и ещё ${problems.length - 5}` : '';
-      setCloudError(`Исправьте ошибки перед публикацией:\n• ${problems.slice(0, 5).join('\n• ')}${more}`);
+  const handlePinSubmit = useCallback(() => {
+    if (lockedForSec > 0) {
+      setErrorMsg(`Слишком много попыток. Подождите ${Math.ceil(lockedForSec / 60)} мин.`);
       return;
     }
-
-    setIsSyncingCloud(true);
-    setCloudError(null);
-
-    try {
-      const payload = courses.map((c) => ({
-        id: c.id,
-        title: c.title,
-        language: c.language,
-        data: c
-      }));
-
-      const { error } = await supabase.from('courses').upsert(payload, { onConflict: 'id' });
-
-      if (error) {
-        setCloudError(`Ошибка Supabase: ${error.message}`);
-        setStatus('Ошибка сохранения ❌', 'error');
+    const pin = pinInput.trim();
+    if (!pin) {
+      setErrorMsg('Введите ПИН-код.');
+      return;
+    }
+    setErrorMsg('');
+    void verifyPin(pin).then(({ ok, message }) => {
+      if (ok) {
+        setPinInput('');
+        reset();
+        setAuthStatus('ready');
       } else {
-        setStatus('Опубликовано в Supabase ✅', 'ok', false);
+        if (!tryAttempt()) {
+          setErrorMsg('Слишком много неверных попыток. Подождите несколько минут.');
+        } else {
+          setErrorMsg(message);
+        }
       }
-    } catch {
-      setCloudError('Не удалось соединиться с сервером Supabase.');
-    } finally {
-      setIsSyncingCloud(false);
-    }
-  };
-
-  const currentCourse = useMemo<Course | undefined>(
-    () => courses.find((c) => c.id === selectedCourseId) || courses[0],
-    [courses, selectedCourseId]
-  );
-
-  const currentModule = useMemo<CourseModule | undefined>(
-    () => currentCourse?.modules.find((m) => m.id === selectedModuleId) || currentCourse?.modules[0],
-    [currentCourse, selectedModuleId]
-  );
-
-  const currentItem = useMemo<CourseItem | undefined>(
-    () => currentModule?.items.find((i) => i.id === selectedItemId) || currentModule?.items[0],
-    [currentModule, selectedItemId]
-  );
-
-  // --- ОПЕРАЦИИ С КУРСАМИ ---
-
-  const handleAddCourse = () => {
-    const newId = `course-${uid()}`;
-    const newModId = `mod-${uid()}`;
-    const newItemId = `item-${uid()}`;
-
-    const newCourse: Course = {
-      id: newId,
-      title: 'Новый курс программирования',
-      language: 'C++',
-      langKey: 'cpp',
-      level: 'Начинающий',
-      duration: '10 часов',
-      accent: 'from-blue-600 to-cyan-500',
-      badgeBg: 'bg-blue-500/15 text-blue-400 border-blue-500/30',
-      description: 'Описание нового образовательного курса.',
-      skills: ['Базовый синтаксис', 'Решение задач'],
-      modules: [
-        {
-          id: newModId,
-          title: 'Модуль 1. Введение',
-          items: [
-            {
-              id: newItemId,
-              title: 'Первый урок',
-              type: 'theory',
-              content: '# Добро пожаловать на курс!\n\nНапишите здесь теоретический материал урока.'
-            }
-          ]
-        }
-      ]
-    };
-
-    setCourses((prev) => [...prev, newCourse]);
-    setSelectedCourseId(newId);
-    setSelectedModuleId(newModId);
-    setSelectedItemId(newItemId);
-    setActiveRightPanel('course-settings');
-    setStatus('Есть несохранённые в облаке изменения', 'warn', true);
-  };
-
-  const handleDeleteCourse = async (courseId: string) => {
-    if (courses.length <= 1) return;
-    const target = courses.find((c) => c.id === courseId);
-    if (!window.confirm(`Удалить курс «${target?.title ?? courseId}» вместе со всеми модулями и из облака?`)) return;
-    const filtered = courses.filter((c) => c.id !== courseId);
-    setCourses(filtered);
-    setSelectedCourseId(filtered[0].id);
-    setSelectedModuleId(filtered[0].modules[0]?.id || '');
-    setSelectedItemId(filtered[0].modules[0]?.items[0]?.id || '');
-
-    try {
-      const { error } = await supabase.from('courses').delete().eq('id', courseId);
-      if (error) setCloudError(`Не удалось удалить курс из облака: ${error.message}`);
-      else setStatus('Курс удалён из облака 🗑️', 'ok');
-    } catch {
-      setCloudError('Не удалось соединиться с сервером Supabase.');
-    }
-  };
-
-  const updateCurrentCourse = (patch: Partial<Course>) => {
-    if (!currentCourse) return;
-    setStatus('Есть несохранённые в облаке изменения', 'warn', true);
-    setCourses((prev) =>
-      prev.map((c) => {
-        if (c.id !== currentCourse.id) return c;
-        const updated = { ...c, ...patch };
-        if (patch.language === 'C++') {
-          updated.langKey = 'cpp';
-          updated.accent = 'from-blue-600 to-cyan-500';
-          updated.badgeBg = 'bg-blue-500/15 text-blue-400 border-blue-500/30';
-        } else if (patch.language === 'Python') {
-          updated.langKey = 'python';
-          updated.accent = 'from-amber-500 to-yellow-400';
-          updated.badgeBg = 'bg-amber-500/15 text-amber-300 border-amber-500/30';
-        }
-        return updated;
-      })
-    );
-  };
-
-  // --- ОПЕРАЦИИ С НАВЫКАМИ ---
-
-  const handleAddSkill = () => {
-    const trimmed = newSkillText.trim();
-    if (!trimmed || !currentCourse) return;
-    const existing = currentCourse.skills || [];
-    if (!existing.includes(trimmed)) {
-      updateCurrentCourse({ skills: [...existing, trimmed] });
-    }
-    setNewSkillText('');
-  };
-
-  const handleRemoveSkill = (skillToRemove: string) => {
-    if (!currentCourse) return;
-    updateCurrentCourse({
-      skills: (currentCourse.skills || []).filter((s) => s !== skillToRemove)
     });
-  };
+  }, [pinInput, lockedForSec, tryAttempt, reset]);
 
-  // --- ОПЕРАЦИИ С МОДУЛЯМИ ---
-
-  const handleAddModule = () => {
-    if (!currentCourse) return;
-    const modNum = currentCourse.modules.length + 1;
-    const newModId = `mod-${uid()}`;
-    const newItemId = `item-${uid()}`;
-
-    const newMod: CourseModule = {
-      id: newModId,
-      title: `Модуль ${modNum}. Новая тема`,
-      items: [
-        {
-          id: newItemId,
-          title: 'Теоретическое введение',
-          type: 'theory',
-          content: '# Новая тема\n\nДобавьте описание теории и примеры кода.'
-        }
-      ]
-    };
-
-    updateCurrentCourse({ modules: [...currentCourse.modules, newMod] });
-    setSelectedModuleId(newModId);
-    setSelectedItemId(newItemId);
-    setActiveRightPanel('item-editor');
-  };
-
-  const handleRenameModule = (modId: string, newTitle: string) => {
-    if (!currentCourse) return;
-    updateCurrentCourse({
-      modules: currentCourse.modules.map((m) => (m.id === modId ? { ...m, title: newTitle } : m))
-    });
-  };
-
-  const handleDeleteModule = (modId: string) => {
-    if (!currentCourse || currentCourse.modules.length <= 1) return;
-    const delMod = currentCourse.modules.find((m) => m.id === modId);
-    if (!window.confirm(`Удалить модуль «${delMod?.title ?? modId}» и все его уроки?`)) return;
-    const nextModules = currentCourse.modules.filter((m) => m.id !== modId);
-    updateCurrentCourse({ modules: nextModules });
-    setSelectedModuleId(nextModules[0].id);
-    setSelectedItemId(nextModules[0].items[0]?.id || '');
-  };
-
-  // --- ОПЕРАЦИИ С УРОКАМИ И ЗАДАЧАМИ ---
-
-  const handleAddItem = (modId: string, type: CourseItem['type']) => {
-    if (!currentCourse) return;
-    const newItemId = `item-${uid()}`;
-    const isCpp = currentCourse.langKey === 'cpp';
-
-    const newItem: CourseItem =
-      type === 'quiz'
-        ? {
-            id: newItemId,
-            title: 'Новый тест (Квиз)',
-            type: 'quiz',
-            content: '# Проверьте себя\n\nОтветьте на вопросы ниже.',
-            quizQuestions: [createEmptyQuizQuestion()]
-          }
-        : type === 'theory'
-        ? {
-            id: newItemId,
-            title: 'Новый урок (Теория)',
-            type: 'theory',
-            content: '# Заголовок урока\n\nТекст урока с поддержкой **Markdown** и блоков кода.'
-          }
-        : {
-            id: newItemId,
-            title: 'Новая задача (Практика)',
-            type: 'task',
-            content: '# Условие задачи\n\nОпишите, что должна делать программа и какие данные подаются на вход.',
-            initialCode: isCpp
-              ? `#include <iostream>\n\nint main() {\n    // Напишите ваш код здесь\n    return 0;\n}`
-              : `# Напишите ваш код на Python здесь\n`,
-            solution: isCpp
-              ? `#include <iostream>\n\nint main() {\n    std::cout << "OK\\n";\n    return 0;\n}`
-              : `print("OK")`,
-            tests: [{ input: '1', expected: 'OK' }]
-          };
-
-    updateCurrentCourse({
-      modules: currentCourse.modules.map((m) =>
-        m.id === modId ? { ...m, items: [...m.items, newItem] } : m
-      )
-    });
-
-    setSelectedModuleId(modId);
-    setSelectedItemId(newItemId);
-    setActiveRightPanel('item-editor');
-  };
-
-  const handleDeleteItem = (modId: string, itemId: string) => {
-    if (!currentCourse) return;
-    const targetMod = currentCourse.modules.find((m) => m.id === modId);
-    if (!targetMod || targetMod.items.length <= 1) return;
-    const delItem = targetMod.items.find((i) => i.id === itemId);
-    if (!window.confirm(`Удалить «${delItem?.title ?? itemId}»?`)) return;
-
-    const updatedItems = targetMod.items.filter((i) => i.id !== itemId);
-    updateCurrentCourse({
-      modules: currentCourse.modules.map((m) => (m.id === modId ? { ...m, items: updatedItems } : m))
-    });
-    setSelectedItemId(updatedItems[0].id);
-  };
-
-  const updateCurrentItem = (patch: Partial<CourseItem>) => {
-    if (!currentCourse || !currentModule || !currentItem) return;
-    updateCurrentCourse({
-      modules: currentCourse.modules.map((m) => {
-        if (m.id !== currentModule.id) return m;
-        return {
-          ...m,
-          items: m.items.map((item) => (item.id === currentItem.id ? { ...item, ...patch } : item))
-        };
-      })
-    });
-  };
-
-  // --- ОПЕРАЦИИ С ТЕСТАМИ ---
-
-  const handleAddTestCase = () => {
-    if (!currentItem) return;
-    const currentTests = currentItem.tests || [];
-    updateCurrentItem({
-      tests: [...currentTests, { input: '', expected: '' }]
-    });
-  };
-
-  const handleUpdateTestCase = (idx: number, field: 'input' | 'expected', value: string) => {
-    if (!currentItem) return;
-    const currentTests = currentItem.tests || [];
-    updateCurrentItem({
-      tests: currentTests.map((t, i) => (i === idx ? { ...t, [field]: value } : t))
-    });
-  };
-
-  const handleDeleteTestCase = (idx: number) => {
-    if (!currentItem) return;
-    const currentTests = currentItem.tests || [];
-    if (currentTests.length <= 1) return;
-    updateCurrentItem({
-      tests: currentTests.filter((_, i) => i !== idx)
-    });
-  };
-
-  // --- ОПЕРАЦИИ С ВОПРОСАМИ КВИЗА ---
-
-  const updateQuizQuestions = (updater: (qs: QuizQuestion[]) => QuizQuestion[]) => {
-    if (!currentItem) return;
-    updateCurrentItem({ quizQuestions: updater(currentItem.quizQuestions || []) });
-  };
-
-  const handleAddQuizQuestion = () =>
-    updateQuizQuestions((qs) => [...qs, createEmptyQuizQuestion()]);
-
-  const handleDeleteQuizQuestion = (qIdx: number) =>
-    updateQuizQuestions((qs) => (qs.length <= 1 ? qs : qs.filter((_, i) => i !== qIdx)));
-
-  const handleUpdateQuizQuestion = (qIdx: number, patch: Partial<QuizQuestion>) =>
-    updateQuizQuestions((qs) => qs.map((q, i) => (i === qIdx ? { ...q, ...patch } : q)));
-
-  const handleAddQuizOption = (qIdx: number) =>
-    updateQuizQuestions((qs) =>
-      qs.map((q, i) =>
-        i === qIdx
-          ? { ...q, options: [...q.options, `Вариант ${String.fromCharCode(65 + q.options.length)}`] }
-          : q
-      )
-    );
-
-  const handleUpdateQuizOption = (qIdx: number, optIdx: number, value: string) =>
-    updateQuizQuestions((qs) =>
-      qs.map((q, i) =>
-        i === qIdx ? { ...q, options: q.options.map((o, oi) => (oi === optIdx ? value : o)) } : q
-      )
-    );
-
-  const handleDeleteQuizOption = (qIdx: number, optIdx: number) =>
-    updateQuizQuestions((qs) =>
-      qs.map((q, i) => {
-        if (i !== qIdx || q.options.length <= 2) return q;
-        // Сдвигаем индекс правильного ответа, чтобы он продолжал указывать на тот же вариант
-        let correctIndex = q.correctIndex;
-        if (optIdx === correctIndex) correctIndex = 0;
-        else if (optIdx < correctIndex) correctIndex -= 1;
-        return { ...q, options: q.options.filter((_, oi) => oi !== optIdx), correctIndex };
-      })
-    );
-
-  const handleDownloadJson = () => {
-    const blob = new Blob([JSON.stringify(courses, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'devcourses-db.json';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const handleImportJson = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const input = e.target;
-    const file = input.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const parsed: unknown = JSON.parse(String(event.target?.result));
-        if (!Array.isArray(parsed) || parsed.length === 0 || !parsed.every(isValidCourse)) {
-          setCloudError('Импорт отменён: файл не похож на базу курсов DevCourses (проверьте структуру JSON).');
-          return;
-        }
-        const list = parsed as Course[];
-        if (!window.confirm(`Заменить текущие курсы (${courses.length}) импортированными (${list.length})?`)) return;
-        setCloudError(null);
-        setCourses(list);
-        setSelectedCourseId(list[0].id);
-        setSelectedModuleId(list[0].modules[0].id);
-        setSelectedItemId(list[0].modules[0].items[0].id);
-        setStatus('Импортировано! Нажмите «Опубликовать в облако»', 'warn', true);
-      } catch {
-        setCloudError('Импорт отменён: файл не является корректным JSON.');
-      } finally {
-        input.value = ''; // позволяет повторно выбрать тот же файл
-      }
-    };
-    reader.readAsText(file);
-  };
-
-  const handleResetToDefaults = () => {
-    if (!window.confirm('Сбросить все курсы к стандартным? Несохранённые изменения будут потеряны.')) return;
-    localStorage.removeItem('dc_custom_courses');
-    setCourses(DEFAULT_COURSES);
-    setSelectedCourseId(DEFAULT_COURSES[0].id);
-    setSelectedModuleId(DEFAULT_COURSES[0].modules[0].id);
-    setSelectedItemId(DEFAULT_COURSES[0].modules[0].items[0].id);
-    setStatus('Сброшено к стандартным (нажмите «Опубликовать»)', 'warn', true);
-  };
-  if (!authChecked) {
+  if (authStatus === 'checking') {
     return (
-      <div className="min-h-screen text-slate-400 flex items-center justify-center text-sm">
-        Проверка доступа…
+      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-blue-950 to-slate-950 flex items-center justify-center p-4">
+        <Loading label="Проверка доступа…" />
       </div>
     );
   }
 
-  if (!isAdmin) {
+  if (authStatus === 'need_pin') {
     return (
-      <div className="min-h-screen text-slate-200 flex items-center justify-center p-4">
-        <form
-          onSubmit={handleAdminLogin}
-          className="max-w-sm w-full p-6 rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl space-y-4 text-center"
-        >
-          <div className="w-12 h-12 rounded-2xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center mx-auto text-indigo-400">
-            <Settings className="w-6 h-6" />
-          </div>
-          <h1 className="text-xl font-bold text-white">Вход для администратора</h1>
-          <p className="text-xs text-slate-400">
-            Войдите аккаунтом с ролью администратора, чтобы управлять базой курсов Supabase
-          </p>
-
-          {loginError && (
-            <div className="p-3 rounded-xl bg-rose-950/50 border border-rose-500/40 text-rose-200 text-xs flex items-center gap-2 text-left">
-              <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0" />
-              <span>{loginError}</span>
+      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-blue-950 to-slate-950 flex items-center justify-center p-4">
+        <div className="w-full max-w-md p-8 rounded-2xl bg-slate-900/80 backdrop-blur-xl border border-slate-800 shadow-2xl space-y-6">
+          <div className="flex items-center gap-3">
+            <div className="p-3 rounded-xl bg-blue-500/15 border border-blue-500/30">
+              <KeyRound className="w-6 h-6 text-blue-400" aria-hidden="true" />
             </div>
-          )}
-
-          <input
-            type="email"
-            required
-            autoComplete="username"
-            value={adminEmail}
-            onChange={(e) => setAdminEmail(e.target.value)}
-            placeholder="Email"
-            aria-label="Email администратора"
-            className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-sm text-white focus:border-blue-500 focus:outline-none"
-          />
-          <input
-            type="password"
-            required
-            autoComplete="current-password"
-            value={adminPassword}
-            onChange={(e) => setAdminPassword(e.target.value)}
-            placeholder="Пароль"
-            aria-label="Пароль администратора"
-            className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-sm text-white focus:border-blue-500 focus:outline-none"
-          />
-          <button
-            type="submit"
-            disabled={loginLoading}
-            className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-semibold text-sm cursor-pointer transition-colors"
-          >
-            {loginLoading ? 'Проверка…' : 'Войти в студию'}
-          </button>
-          <Link href="/" className="block text-xs text-slate-500 hover:text-slate-300 pt-2">
-            ← Вернуться на главную
-          </Link>
-        </form>
+            <div>
+              <h1 className="text-xl font-bold text-white">Вход в админку</h1>
+              <p className="text-xs text-slate-400">Введите ПИН-код</p>
+            </div>
+          </div>
+          {errorMsg && <ErrorNote message={errorMsg} />}
+          <div className="space-y-3">
+            <label htmlFor="admin-pin" className="block text-sm font-semibold text-slate-300">
+              ПИН-код
+            </label>
+            <input
+              id="admin-pin"
+              type="password"
+              inputMode="numeric"
+              value={pinInput}
+              onChange={(e) => setPinInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handlePinSubmit()}
+              placeholder="••••••••"
+              autoFocus
+              className={inputClass}
+            />
+            <button type="button" onClick={handlePinSubmit} className={primaryButton + ' w-full'}>
+              Войти
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen text-slate-200 flex flex-col">
-      {/* Шапка админки */}
-      <header className="sticky top-0 z-50 bg-slate-950/90 backdrop-blur-md border-b border-slate-800 px-4 sm:px-6 py-3">
-        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-4">
-            <Link
-              href="/"
-              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 text-xs sm:text-sm font-medium transition-colors"
-            >
-              <ArrowLeft className="w-4 h-4 text-blue-400" />
-              <span>На главную</span>
-            </Link>
-
-            <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-600 to-blue-500 flex items-center justify-center shadow-lg">
-                <Settings className="w-5 h-5 text-white" />
-              </div>
-              <div>
-                <h1 className="font-bold text-base sm:text-lg text-white leading-none">
-                  DevCourses Cloud Studio
-                </h1>
-                <span
-                  className={`text-[11px] font-mono flex items-center gap-1 mt-0.5 ${
-                    cloudTone === 'ok'
-                      ? 'text-emerald-400'
-                      : cloudTone === 'warn'
-                      ? 'text-amber-400'
-                      : 'text-rose-400'
-                  }`}
-                >
-                  {cloudTone === 'ok' ? (
-                    <CheckCircle2 className="w-3 h-3" />
-                  ) : (
-                    <AlertCircle className="w-3 h-3" />
-                  )}{' '}
-                  {cloudStatus}
-                </span>
-              </div>
-            </div>
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-blue-950 to-slate-950 text-white p-4 sm:p-6 lg:p-8">
+      <div className="max-w-7xl mx-auto space-y-6">
+        <header className="flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">
+              Админ-дашборд
+            </h1>
+            <p className="text-xs text-slate-400 mt-1">Управление платформой и пользователями</p>
           </div>
-
-          <div className="flex flex-wrap items-center gap-2">
+        </header>
+        <nav className="flex gap-2 overflow-x-auto pb-2" role="tablist">
+          {TABS.map((tab) => (
             <button
-              onClick={handleSaveToSupabase}
-              disabled={isSyncingCloud}
-              className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 text-white text-xs sm:text-sm font-bold flex items-center gap-2 shadow-lg shadow-emerald-600/20 cursor-pointer transition-all"
-            >
-              {isSyncingCloud ? (
-                <RefreshCw className="w-4 h-4 animate-spin" />
-              ) : (
-                <CloudUpload className="w-4 h-4" />
-              )}
-              <span>
-                {isSyncingCloud ? 'Сохранение в Supabase...' : 'Опубликовать в облако Supabase'}
-              </span>
-            </button>
-
-            <button
-              onClick={handleDownloadJson}
-              className="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 text-xs font-medium flex items-center gap-1.5 cursor-pointer"
-            >
-              <Download className="w-3.5 h-3.5 text-cyan-400" />
-              <span>JSON</span>
-            </button>
-
-            <label className="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 text-xs font-medium flex items-center gap-1.5 cursor-pointer">
-              <Upload className="w-3.5 h-3.5 text-amber-400" />
-              <span>Импорт</span>
-              <input type="file" accept=".json" onChange={handleImportJson} className="hidden" />
-            </label>
-
-            <button
-              onClick={handleResetToDefaults}
-              className="px-3 py-2 rounded-xl bg-rose-950/40 hover:bg-rose-900/50 text-rose-300 border border-rose-800/50 text-xs font-medium flex items-center gap-1.5 cursor-pointer"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Сброс</span>
-            </button>
-
-            <button
-              onClick={handleAdminLogout}
-              className="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 text-xs font-medium flex items-center gap-1.5 cursor-pointer"
-            >
-              <LogOut className="w-3.5 h-3.5 text-slate-400" />
-              <span className="hidden sm:inline">Выйти</span>
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {cloudError && (
-        <div className="max-w-7xl w-full mx-auto px-6 pt-4">
-          <div className="p-3 rounded-xl bg-rose-950/50 border border-rose-500/40 text-rose-200 text-xs flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0" />
-            <span className="whitespace-pre-line">{cloudError}</span>
-          </div>
-        </div>
-      )}
-
-      {/* Основная рабочая область */}
-      <div className="flex-1 max-w-7xl w-full mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6 p-4 sm:p-6">
-        <aside className="lg:col-span-4 space-y-5">
-          <div className="p-4 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-3 shadow-xl">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                <Layers className="w-4 h-4 text-blue-400" />
-                1. Выберите курс
-              </span>
-              <button
-                onClick={handleAddCourse}
-                className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center gap-1 cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5" /> Новый курс
-              </button>
-            </div>
-
-            <div className="space-y-1.5">
-              {courses.map((c) => {
-                const isSelected = c.id === currentCourse?.id;
-                return (
-                  <div
-                    key={c.id}
-                    className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 transition-all ${
-                      isSelected
-                        ? 'bg-blue-600/15 border-blue-500/40 text-white'
-                        : 'bg-slate-950/60 border-slate-800/80 text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    <button
-                      onClick={() => {
-                        setSelectedCourseId(c.id);
-                        const firstMod = c.modules[0];
-                        if (firstMod) {
-                          setSelectedModuleId(firstMod.id);
-                          if (firstMod.items[0]) setSelectedItemId(firstMod.items[0].id);
-                        }
-                        setActiveRightPanel('course-settings');
-                      }}
-                      className="flex-1 text-left truncate text-sm font-semibold cursor-pointer"
-                    >
-                      <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-slate-800 text-cyan-300 mr-2">
-                        {c.language}
-                      </span>
-                      {c.title}
-                    </button>
-
-                    {courses.length > 1 && (
-                      <button
-                        onClick={() => handleDeleteCourse(c.id)}
-                        aria-label={`Удалить курс «${c.title}»`}
-                        className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-950/40 cursor-pointer"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-
-            <button
-              onClick={() => setActiveRightPanel('course-settings')}
-              className={`w-full py-2 px-3 rounded-xl text-xs font-semibold border flex items-center justify-center gap-2 cursor-pointer transition-colors ${
-                activeRightPanel === 'course-settings'
-                  ? 'bg-indigo-600 text-white border-indigo-500'
-                  : 'bg-slate-950 text-slate-300 border-slate-800 hover:bg-slate-800'
+              key={tab.id}
+              role="tab"
+              aria-selected={activeTab === tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all whitespace-nowrap ${
+                activeTab === tab.id
+                  ? 'bg-blue-500/20 border border-blue-500/50 text-blue-300'
+                  : 'bg-slate-900/50 border border-slate-800 text-slate-400 hover:bg-slate-800/50 hover:border-slate-700'
               }`}
             >
-              <Tag className="w-3.5 h-3.5" />
-              <span>Настроить описание и навыки курса</span>
+              {tab.icon}
+              {tab.label}
             </button>
-          </div>
-
-          {currentCourse && (
-            <div className="p-4 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-4 shadow-xl">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                  <FolderPlus className="w-4 h-4 text-emerald-400" />
-                  2. Модули и задачи курса
-                </span>
-                <button
-                  onClick={handleAddModule}
-                  className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1 cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5" /> Модуль
-                </button>
-              </div>
-
-              <div className="space-y-3 max-h-[520px] overflow-y-auto pr-1">
-                {currentCourse.modules.map((mod) => (
-                  <div
-                    key={mod.id}
-                    className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <input
-                        type="text"
-                        value={mod.title}
-                        onChange={(e) => handleRenameModule(mod.id, e.target.value)}
-                        className="flex-1 bg-slate-900 px-2.5 py-1.5 rounded-lg border border-slate-800 focus:border-blue-500 focus:outline-none text-xs font-bold text-white"
-                      />
-                      {currentCourse.modules.length > 1 && (
-                        <button
-                          onClick={() => handleDeleteModule(mod.id)}
-                          aria-label={`Удалить модуль «${mod.title}»`}
-                          className="p-1.5 text-slate-500 hover:text-rose-400 cursor-pointer"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
-
-                    <div className="space-y-1 pl-1">
-                      {mod.items.map((item) => {
-                        const isItemActive =
-                          activeRightPanel === 'item-editor' && item.id === currentItem?.id;
-                        return (
-                          <div
-                            key={item.id}
-                            className={`flex items-center justify-between gap-1 px-2.5 py-1.5 rounded-lg text-xs transition-colors ${
-                              isItemActive
-                                ? 'bg-blue-600/20 text-blue-300 border border-blue-500/30 font-semibold'
-                                : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
-                            }`}
-                          >
-                            <button
-                              onClick={() => {
-                                setSelectedModuleId(mod.id);
-                                setSelectedItemId(item.id);
-                                setActiveRightPanel('item-editor');
-                              }}
-                              className="flex-1 flex items-center gap-2 text-left truncate cursor-pointer"
-                            >
-                              {item.type === 'theory' ? (
-                                <BookOpen className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" />
-                              ) : item.type === 'quiz' ? (
-                                <GraduationCap className="w-3.5 h-3.5 text-violet-400 flex-shrink-0" />
-                              ) : (
-                                <Terminal className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
-                              )}
-                              <span className="truncate">{item.title}</span>
-                            </button>
-
-                            {mod.items.length > 1 && (
-                              <button
-                                onClick={() => handleDeleteItem(mod.id, item.id)}
-                                aria-label={`Удалить «${item.title}»`}
-                                className="p-1 text-slate-600 hover:text-rose-400 cursor-pointer"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                              </button>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-2 pt-1">
-                      <button
-                        onClick={() => handleAddItem(mod.id, 'theory')}
-                        className="py-1.5 px-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-slate-800 text-[11px] font-medium flex items-center justify-center gap-1 cursor-pointer"
-                      >
-                        <Plus className="w-3 h-3" /> Теория
-                      </button>
-                      <button
-                        onClick={() => handleAddItem(mod.id, 'task')}
-                        className="py-1.5 px-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-amber-300 border border-slate-800 text-[11px] font-medium flex items-center justify-center gap-1 cursor-pointer"
-                      >
-                        <Plus className="w-3 h-3" /> Задача
-                      </button>
-                      <button
-                        onClick={() => handleAddItem(mod.id, 'quiz')}
-                        className="py-1.5 px-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-violet-300 border border-slate-800 text-[11px] font-medium flex items-center justify-center gap-1 cursor-pointer"
-                      >
-                        <Plus className="w-3 h-3" /> Квиз
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </aside>
-
-        <section className="lg:col-span-8">
-          {activeRightPanel === 'course-settings' && currentCourse ? (
-            <div className="p-6 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-xl space-y-6">
-              <div className="border-b border-slate-800 pb-4">
-                <span className="text-xs font-semibold uppercase tracking-wider text-indigo-400">
-                  Настройки курса и навыков
-                </span>
-                <h2 className="text-2xl font-bold text-white mt-1">{currentCourse.title}</h2>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-slate-400">Название курса</label>
-                  <input
-                    type="text"
-                    value={currentCourse.title}
-                    onChange={(e) => updateCurrentCourse({ title: e.target.value })}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-sm text-white focus:border-blue-500 focus:outline-none"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-slate-400">Язык компилятора</label>
-                  <select
-                    value={currentCourse.language}
-                    onChange={(e) => updateCurrentCourse({ language: e.target.value })}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-sm text-white focus:border-blue-500 focus:outline-none"
-                  >
-                    <option value="C++">C++ (GCC 10.2 / C++17)</option>
-                    <option value="Python">Python (Python 3.10)</option>
-                  </select>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-slate-400">Уровень сложности</label>
-                  <select
-                    value={currentCourse.level}
-                    onChange={(e) => updateCurrentCourse({ level: e.target.value })}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-sm text-white focus:border-blue-500 focus:outline-none"
-                  >
-                    <option value="Начинающий">Начинающий</option>
-                    <option value="Средний">Средний</option>
-                    <option value="Продвинутый">Продвинутый</option>
-                  </select>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-slate-400">Длительность курса</label>
-                  <input
-                    type="text"
-                    value={currentCourse.duration}
-                    onChange={(e) => updateCurrentCourse({ duration: e.target.value })}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-sm text-white focus:border-blue-500 focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-400">Краткое описание курса</label>
-                <textarea
-                  rows={3}
-                  value={currentCourse.description}
-                  onChange={(e) => updateCurrentCourse({ description: e.target.value })}
-                  className="w-full p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-sm text-white focus:border-blue-500 focus:outline-none"
-                />
-              </div>
-
-              <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
-                <label className="text-xs font-bold uppercase tracking-wider text-cyan-400 flex items-center gap-1.5">
-                  <Sparkles className="w-4 h-4" />
-                  Навыки курса (Skills)
-                </label>
-
-                <div className="flex flex-wrap gap-2">
-                  {(currentCourse.skills || []).map((skill) => (
-                    <span
-                      key={skill}
-                      className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-blue-500/15 text-blue-300 border border-blue-500/30"
-                    >
-                      {skill}
-                      <button
-                        onClick={() => handleRemoveSkill(skill)}
-                        aria-label={`Удалить навык ${skill}`}
-                        className="hover:text-rose-400 cursor-pointer"
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
-                </div>
-
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={newSkillText}
-                    onChange={(e) => setNewSkillText(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleAddSkill();
-                      }
-                    }}
-                    placeholder="Введите навык (например: ООП, std::vector)..."
-                    className="flex-1 px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs text-white focus:border-blue-500 focus:outline-none"
-                  />
-                  <button
-                    onClick={handleAddSkill}
-                    className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold cursor-pointer"
-                  >
-                    + Добавить навык
-                  </button>
-                </div>
-              </div>
-            </div>
-          ) : currentItem ? (
-            <div className="p-6 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-xl space-y-6">
-              <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-4">
-                <div>
-                  <span className="text-xs text-slate-400">{currentModule?.title}</span>
-                  <h2 className="text-xl font-bold text-white mt-0.5">{currentItem.title}</h2>
-                </div>
-
-                <div className="flex items-center gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800">
-                  <button
-                    onClick={() => updateCurrentItem({ type: 'theory' })}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer ${
-                      currentItem.type === 'theory'
-                        ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    <BookOpen className="w-3.5 h-3.5" />
-                    <span>Теория</span>
-                  </button>
-                  <button
-                    onClick={() =>
-                      updateCurrentItem({
-                        type: 'task',
-                        initialCode:
-                          currentItem.initialCode ||
-                          (currentCourse?.langKey === 'python' ? '# Ваш код здесь\n' : '// Ваш код здесь\n'),
-                        solution:
-                          currentItem.solution ||
-                          (currentCourse?.langKey === 'python' ? '# Эталонное решение\n' : '// Эталонное решение\n'),
-                        tests: currentItem.tests?.length
-                          ? currentItem.tests
-                          : [{ input: '1', expected: '1' }]
-                      })
-                    }
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer ${
-                      currentItem.type === 'task'
-                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    <Terminal className="w-3.5 h-3.5" />
-                    <span>Практическая задача</span>
-                  </button>
-                  <button
-                    onClick={() =>
-                      updateCurrentItem({
-                        type: 'quiz',
-                        quizQuestions: currentItem.quizQuestions?.length
-                          ? currentItem.quizQuestions
-                          : [createEmptyQuizQuestion()]
-                      })
-                    }
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer ${
-                      currentItem.type === 'quiz'
-                        ? 'bg-violet-500/20 text-violet-300 border border-violet-500/30'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    <GraduationCap className="w-3.5 h-3.5" />
-                    <span>Квиз</span>
-                  </button>
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-400">Название шага</label>
-                <input
-                  type="text"
-                  value={currentItem.title}
-                  onChange={(e) => updateCurrentItem({ title: e.target.value })}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-sm text-white focus:border-blue-500 focus:outline-none"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-400">
-                  Контент (Markdown)
-                </label>
-                <textarea
-                  rows={8}
-                  value={currentItem.content}
-                  onChange={(e) => updateCurrentItem({ content: e.target.value })}
-                  className="w-full p-4 rounded-xl bg-slate-950 border border-slate-800 font-mono text-xs sm:text-sm text-slate-100 leading-relaxed focus:border-blue-500 focus:outline-none"
-                />
-              </div>
-
-              {currentItem.type === 'task' && (
-                <div className="space-y-6 pt-2 border-t border-slate-800">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-blue-400 flex items-center gap-1.5">
-                        <FileCode className="w-4 h-4" />
-                        Стартовый шаблон кода (initialCode)
-                      </label>
-                      <textarea
-                        rows={7}
-                        value={currentItem.initialCode || ''}
-                        onChange={(e) => updateCurrentItem({ initialCode: e.target.value })}
-                        className="w-full p-3.5 rounded-xl bg-slate-950 border border-slate-800 font-mono text-xs text-emerald-200 focus:border-blue-500 focus:outline-none"
-                      />
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-emerald-400 flex items-center gap-1.5">
-                        <CheckCircle2 className="w-4 h-4" />
-                        Эталонное решение (solution)
-                      </label>
-                      <textarea
-                        rows={7}
-                        value={currentItem.solution || ''}
-                        onChange={(e) => updateCurrentItem({ solution: e.target.value })}
-                        className="w-full p-3.5 rounded-xl bg-slate-950 border border-slate-800 font-mono text-xs text-amber-200 focus:border-emerald-500 focus:outline-none"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h4 className="text-xs font-bold uppercase tracking-wider text-amber-400">
-                          Автоматические тесты (Stdin → Stdout)
-                        </h4>
-                      </div>
-                      <button
-                        onClick={handleAddTestCase}
-                        className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 text-xs font-semibold flex items-center gap-1 cursor-pointer"
-                      >
-                        <Plus className="w-3.5 h-3.5" /> Добавить тест
-                      </button>
-                    </div>
-
-                    <div className="space-y-3">
-                      {(currentItem.tests || []).map((test, idx) => (
-                        <div
-                          key={idx}
-                          className="p-3 rounded-xl bg-slate-900 border border-slate-800 grid grid-cols-1 sm:grid-cols-12 gap-3 items-start"
-                        >
-                          <div className="sm:col-span-5 space-y-1">
-                            <span className="text-[11px] font-mono text-slate-400">
-                              Тест #{idx + 1} • Ввод (stdin):
-                            </span>
-                            <textarea
-                              rows={2}
-                              value={test.input}
-                              onChange={(e) => handleUpdateTestCase(idx, 'input', e.target.value)}
-                              className="w-full p-2 rounded-lg bg-slate-950 border border-slate-800 font-mono text-xs text-white focus:border-blue-500 focus:outline-none"
-                            />
-                          </div>
-
-                          <div className="sm:col-span-6 space-y-1">
-                            <span className="text-[11px] font-mono text-slate-400">
-                              Ожидаемый вывод (stdout):
-                            </span>
-                            <textarea
-                              rows={2}
-                              value={test.expected}
-                              onChange={(e) =>
-                                handleUpdateTestCase(idx, 'expected', e.target.value)
-                              }
-                              className="w-full p-2 rounded-lg bg-slate-950 border border-slate-800 font-mono text-xs text-emerald-400 focus:border-emerald-500 focus:outline-none"
-                            />
-                          </div>
-
-                          <div className="sm:col-span-1 flex justify-end sm:pt-6">
-                            {(currentItem.tests?.length || 0) > 1 && (
-                              <button
-                                onClick={() => handleDeleteTestCase(idx)}
-                                aria-label={`Удалить тест ${idx + 1}`}
-                                className="p-2 rounded-lg bg-rose-950/40 text-rose-400 hover:bg-rose-900/50 cursor-pointer"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {currentItem.type === 'quiz' && (
-                <div className="space-y-4 pt-2 border-t border-slate-800">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-violet-400 flex items-center gap-1.5">
-                      <GraduationCap className="w-4 h-4" />
-                      Вопросы квиза ({currentItem.quizQuestions?.length || 0})
-                    </h4>
-                    <button
-                      onClick={handleAddQuizQuestion}
-                      className="px-3 py-1.5 rounded-xl bg-violet-500/20 hover:bg-violet-500/30 text-violet-300 border border-violet-500/30 text-xs font-semibold flex items-center gap-1 cursor-pointer"
-                    >
-                      <Plus className="w-3.5 h-3.5" /> Добавить вопрос
-                    </button>
-                  </div>
-
-                  {(currentItem.quizQuestions || []).map((q, qIdx) => (
-                    <QuizQuestionEditor
-                      key={qIdx}
-                      itemId={currentItem.id}
-                      index={qIdx}
-                      question={q}
-                      canDelete={(currentItem.quizQuestions?.length || 0) > 1}
-                      onUpdate={(patch) => handleUpdateQuizQuestion(qIdx, patch)}
-                      onDelete={() => handleDeleteQuizQuestion(qIdx)}
-                      onAddOption={() => handleAddQuizOption(qIdx)}
-                      onUpdateOption={(optIdx, value) => handleUpdateQuizOption(qIdx, optIdx, value)}
-                      onDeleteOption={(optIdx) => handleDeleteQuizOption(qIdx, optIdx)}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          ) : null}
-        </section>
+          ))}
+        </nav>
+        <div role="tabpanel">
+          {activeTab === 'overview' && <AdminOverview />}
+          {activeTab === 'users' && <AdminUsers />}
+          {activeTab === 'settings' && <AdminSiteSettings />}
+          {activeTab === 'email' && <AdminEmailLogs />}
+          {activeTab === 'audit' && <AdminAuditLog />}
+          {activeTab === 'security' && <AdminSecurity />}
+        </div>
       </div>
     </div>
   );
 }
+
+export default memo(AdminDashboard);

@@ -2757,7 +2757,12 @@ export default function App() {
 
         if (signUpError) {
           console.error('Supabase signUp error:', signUpError.status, signUpError.code, signUpError.message);
-          setAuthError(translateAuthError(`${signUpError.code ?? ''} ${signUpError.message}`));
+          // Обработка 422: регистрация закрыта
+          if (signUpError.status === 422 || /DC_REGISTRATION_CLOSED|registration.*closed/i.test(signUpError.message)) {
+            setAuthError('Регистрация новых пользователей временно закрыта администратором.');
+          } else {
+            setAuthError(translateAuthError(`${signUpError.code ?? ''} ${signUpError.message}`));
+          }
           return;
         }
 

@@ -48,6 +48,16 @@ export const DEFAULT_COURSES: readonly string[] = ['cpp-basics'];
 const NETWORK_ERROR_RE = /failed to fetch|network|timeout|offline|ECONNREFUSED|load failed/i;
 
 const AUTH_ERROR_RULES: ReadonlyArray<readonly [RegExp, string]> = [
+  // Маркеры из триггеров БД (supabase/schema.sql)
+  [/DC_ACCOUNT_BANNED/, 'Аккаунт заблокирован администратором.'],
+  [/DC_READ_ONLY/, 'Сайт временно работает только на чтение: изменения не сохраняются.'],
+  [/DC_REGISTRATION_CLOSED/, 'Регистрация новых пользователей временно закрыта.'],
+  [/DC_RATE_LIMIT/, 'Слишком много запросов. Подождите и повторите.'],
+  // Коды Supabase Auth (signUp отвечает 422 на большинство ошибок валидации)
+  [/user_already_exists|email_exists/i, 'Этот Email уже зарегистрирован. Попробуйте войти.'],
+  [/weak_password/i, `Пароль слишком простой. Используйте не меньше ${MIN_PASSWORD_LENGTH} символов, буквы и цифры.`],
+  [/signup_disabled/i, 'Регистрация новых пользователей временно закрыта.'],
+  [/over_email_send_rate_limit/i, 'Слишком много писем за короткое время. Подождите минуту и повторите.'],
   [/invalid login credentials/i, 'Неверный Email или пароль.'],
   [/error sending .*email|email rate limit/i, 'Сервер не смог отправить письмо (лимит или настройки почты). Попробуйте позже.'],
   [/email not confirmed/i, 'Email не подтверждён. Проверьте почту и перейдите по ссылке из письма.'],

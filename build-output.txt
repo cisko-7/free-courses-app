@@ -1,0 +1,26 @@
+
+> free-courses-app@0.1.0 build
+> next build
+
+тЦ▓ Next.js 16.4.0 (Turbopack)
+- Environments: .env.local
+тЬУ Running next.config.mjs took 43ms
+
+  Creating an optimized production build ...
+
+> Build error occurred
+Error: Turbopack build failed with 1 error:
+./app/page.tsx:4362:11
+Error: Expression expected
+  4360 |
+  4361 |         {/* AUTH GATE: ╨│╨╛╤Б╤В╤М ╨╜╨╡ ╨╝╨╛╨╢╨╡╤В ╨╛╤В╨║╤А╤Л╨▓╨░╤В╤М ╤Г╤А╨╛╨║╨╕, ╨╖╨░╨┤╨░╤З╨╕, ╨║╨▓╨╕╨╖╤Л ╨╕ ╤Б╨╡╤А╤В╨╕╤Д╨╕╨║╨░╤В╤Л */}
+> 4362 |         </>
+       |           ^
+  4363 |       )}
+  4364 |     </div>
+  4365 |   );
+
+Parsing ecmascript source code failed
+
+
+    at ignore-listed frames

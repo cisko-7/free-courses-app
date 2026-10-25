@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Onest, JetBrains_Mono, Lora } from "next/font/google";
 import "./globals.css";
+import { SUPABASE_URL } from "@/lib/supabase-config";
 
 const sans = Onest({
   subsets: ["latin", "cyrillic"],
@@ -34,7 +35,11 @@ const originOf = (url?: string) => {
     return "";
   }
 };
-const supabaseOrigin = originOf(process.env.NEXT_PUBLIC_SUPABASE_URL);
+// URL берём из того же модуля, что и клиент: раньше без env в CSP не было адреса Supabase
+// и все запросы к базе блокировались в продакшене
+const supabaseOrigin = originOf(SUPABASE_URL);
+// Realtime и часть служебных запросов supabase-js идут по WebSocket
+const supabaseWs = supabaseOrigin ? supabaseOrigin.replace(/^https:/, "wss:").replace(/^http:/, "ws:") : "";
 const runOrigin = originOf(process.env.NEXT_PUBLIC_RUN_URL);
 const csp = [
   "default-src 'self'",
@@ -43,7 +48,7 @@ const csp = [
   "img-src 'self' data: blob: https:",
   "font-src 'self' data: https://cdn.jsdelivr.net",
   // TODO: уберите emkc.org, когда lib/executor.ts перейдёт на NEXT_PUBLIC_RUN_URL
-  `connect-src 'self' ${[supabaseOrigin, runOrigin, "https://cdn.jsdelivr.net", "https://emkc.org", "https://api.emailjs.com"].filter(Boolean).join(" ")}`,
+  `connect-src 'self' ${[supabaseOrigin, supabaseWs, runOrigin, "https://cdn.jsdelivr.net", "https://emkc.org", "https://api.emailjs.com"].filter(Boolean).join(" ")}`,
   "worker-src 'self' blob:",
   "object-src 'none'",
   "base-uri 'self'",
