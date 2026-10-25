@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Editor from "@monaco-editor/react";
 import {
   Play,
@@ -18,6 +18,7 @@ import {
 import { type CourseItem } from "@/lib/data";
 import { safeGet, safeSet } from "@/lib/safe-storage";
 import { runTestCases, type TestSuiteResult, type SingleTestResult } from "@/lib/executor";
+import { callGeminiAPI, AI_MENTOR_PROMPT, getGeminiApiKey } from "@/lib/ai-autopilot";
 
 interface CodeEditorWorkspaceProps {
   item: CourseItem;
@@ -54,6 +55,12 @@ export default function CodeEditorWorkspace({
   const [testSuiteResult, setTestSuiteResult] = useState<TestSuiteResult | null>(null);
   const [activeTab, setActiveTab] = useState<"results" | "testcases" | "console">("results");
   const [selectedTestIdx, setSelectedTestIdx] = useState(0);
+  
+  // AI Mentor states
+  const [aiHint, setAiHint] = useState<string>("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const lastAiRequestRef = useRef<number>(0);
+  const AI_COOLDOWN_MS = 15000; // 15 секунд cooldown
 
   // Synchronize when switching to a different task.
   // Корректировка состояния во время рендера (рекомендуемая React замена setState в эффекте)
@@ -108,6 +115,42 @@ export default function CodeEditorWorkspace({
       setIsRunning(false);
     }
   }, [code, item.tests, language, onComplete]);
+
+  // AI Mentor: get hint for current task
+  const handleGetAiHint = useCallback(async () => {
+    const now = Date.now();
+    if (now - lastAiRequestRef.current < AI_COOLDOWN_MS) {
+      const remaining = Math.ceil((AI_COOLDOWN_MS - (now - lastAiRequestRef.current)) / 1000);
+      setAiHint(`⏱️ Подождите ${remaining} сек. перед следующим запросом.`);
+      return;
+    }
+
+    const apiKey = getGeminiApiKey();
+    if (!apiKey) {
+      setAiHint("⚠️ ИИ-Ментор отключён. Администратор не настроил Gemini API ключ.");
+      return;
+    }
+
+    setAiLoading(true);
+    setAiHint("");
+    lastAiRequestRef.current = now;
+
+    try {
+      const taskDescription = item.title + (item.content ? `: ${item.content.substring(0, 200)}...` : "");
+      const errorMsg = testSuiteResult?.error || 
+        testSuiteResult?.results?.find(r => !r.passed)?.stderr || 
+        testSuiteResult?.results?.find(r => !r.passed)?.compileError || 
+        "Нет ошибок";
+      const prompt = `Условие задачи: ${taskDescription}\n\nТекущий код:\n${code}\n\nОшибка:\n${errorMsg}\n\nДай короткую наводящую подсказку на русском.`;
+
+      const response = await callGeminiAPI(prompt, AI_MENTOR_PROMPT);
+      setAiHint(response.text);
+    } catch (err) {
+      setAiHint(`❌ Ошибка: ${err instanceof Error ? err.message : "Неизвестная ошибка"}`);
+    } finally {
+      setAiLoading(false);
+    }
+  }, [code, item.title, item.content, testSuiteResult, AI_COOLDOWN_MS]);
 
   // Keyboard shortcut: Ctrl + Enter to run tests
   useEffect(() => {
@@ -252,6 +295,23 @@ export default function CodeEditorWorkspace({
             <span className="text-[11px] text-slate-400 hidden md:inline">
               Ctrl + Enter
             </span>
+
+            {/* AI Hint Button */}
+            {!testSuiteResult?.success && getGeminiApiKey() && (
+              <button
+                onClick={handleGetAiHint}
+                disabled={aiLoading}
+                title="Получить подсказку от ИИ-Ментора"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-amber-300 bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/30 disabled:opacity-50 transition-all duration-150"
+              >
+                {aiLoading ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="w-3.5 h-3.5" />
+                )}
+                <span className="hidden sm:inline">Подсказка ИИ</span>
+              </button>
+            )}
 
             {testSuiteResult?.success ? (
               <button
@@ -492,6 +552,17 @@ export default function CodeEditorWorkspace({
           {/* TAB 3: RAW CONSOLE OUTPUT */}
           {activeTab === "console" && (
             <div>
+              {/* AI Hint Section */}
+              {aiHint && (
+                <div className="mb-3 p-3 rounded-xl bg-amber-950/30 border border-amber-500/30">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Sparkles className="w-4 h-4 text-amber-400" />
+                    <span className="text-xs font-semibold text-amber-300">Подсказка ИИ-Ментора</span>
+                  </div>
+                  <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap">{aiHint}</p>
+                </div>
+              )}
+
               {testSuiteResult ? (
                 <div className="space-y-2">
                   <div className="text-xs text-slate-400 flex items-center justify-between">

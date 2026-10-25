@@ -1,7 +1,7 @@
 'use client';
 
 import { memo, useCallback, useEffect, useState } from 'react';
-import { KeyRound, LayoutDashboard, Mail, FileText, Settings, Users, Shield } from 'lucide-react';
+import { KeyRound, LayoutDashboard, Mail, FileText, Settings, Users, Shield, Zap } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAttemptLimiter } from '@/hooks/useAttemptLimiter';
 import { ErrorNote, inputClass, Loading, primaryButton } from '@/components/admin/ui';
@@ -11,8 +11,9 @@ import AdminSiteSettings from '@/components/admin/AdminSiteSettings';
 import AdminEmailLogs from '@/components/admin/AdminEmailLogs';
 import AdminAuditLog from '@/components/admin/AdminAuditLog';
 import AdminSecurity from '@/components/admin/AdminSecurity';
+import AdminAI from '@/components/admin/AdminAI';
 
-type Tab = 'overview' | 'users' | 'settings' | 'email' | 'audit' | 'security';
+type Tab = 'overview' | 'users' | 'settings' | 'email' | 'audit' | 'security' | 'ai';
 
 const TABS: Array<{ id: Tab; label: string; icon: React.ReactNode }> = [
   { id: 'overview', label: 'Обзор', icon: <LayoutDashboard className="w-4 h-4" /> },
@@ -20,7 +21,8 @@ const TABS: Array<{ id: Tab; label: string; icon: React.ReactNode }> = [
   { id: 'settings', label: 'Настройки', icon: <Settings className="w-4 h-4" /> },
   { id: 'email', label: 'Email', icon: <Mail className="w-4 h-4" /> },
   { id: 'audit', label: 'Журнал', icon: <FileText className="w-4 h-4" /> },
-  { id: 'security', label: 'ПИН', icon: <Shield className="w-4 h-4" /> }
+  { id: 'security', label: 'ПИН', icon: <Shield className="w-4 h-4" /> },
+  { id: 'ai', label: '🤖 ИИ-Пилот', icon: <Zap className="w-4 h-4" /> }
 ];
 
 async function checkPinRequired(): Promise<{ required: boolean; error: string }> {
@@ -176,6 +178,7 @@ function AdminDashboard() {
           {activeTab === 'email' && <AdminEmailLogs />}
           {activeTab === 'audit' && <AdminAuditLog />}
           {activeTab === 'security' && <AdminSecurity />}
+          {activeTab === 'ai' && <AdminAI />}
         </div>
       </div>
     </div>

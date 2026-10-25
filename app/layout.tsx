@@ -48,7 +48,7 @@ const csp = [
   "img-src 'self' data: blob: https:",
   "font-src 'self' data: https://cdn.jsdelivr.net",
   // TODO: уберите emkc.org, когда lib/executor.ts перейдёт на NEXT_PUBLIC_RUN_URL
-  `connect-src 'self' ${[supabaseOrigin, supabaseWs, runOrigin, "https://cdn.jsdelivr.net", "https://emkc.org", "https://api.emailjs.com"].filter(Boolean).join(" ")}`,
+  `connect-src 'self' ${[supabaseOrigin, supabaseWs, runOrigin, "https://cdn.jsdelivr.net", "https://emkc.org", "https://api.emailjs.com", "https://generativelanguage.googleapis.com", "https://api.github.com"].filter(Boolean).join(" ")}`,
   "worker-src 'self' blob:",
   "object-src 'none'",
   "base-uri 'self'",

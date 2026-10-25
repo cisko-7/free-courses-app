@@ -104,6 +104,9 @@ import {
   type CommunitySolution,
   type SolutionSort
 } from '@/lib/community-solutions';
+import { useSiteSettings } from '@/hooks/useSiteSettings';
+import MaintenanceScreen from '@/components/site/MaintenanceScreen';
+import SiteBanner from '@/components/site/SiteBanner';
 
 // --- ТИПЫ ДАННЫХ TYPESCRIPT ---
 
@@ -2319,6 +2322,9 @@ const AUTH_GATE_DESCRIPTION =
 // --- ГЛАВНЫЙ КОМПОНЕНТ ПРИЛОЖЕНИЯ ---
 
 export default function App() {
+  // Настройки сайта: режим техработ, баннер
+  const siteSettings = useSiteSettings();
+  
   const [coursesList, setCoursesList] = useState<Course[]>(COURSES_DATA);
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
   const [selectedCourseId, setSelectedCourseId] = useState<string>('cpp-basics');
@@ -3177,6 +3183,11 @@ export default function App() {
   const xpPercent = Math.min(100, Math.round((totalXp / userRank.nextXp) * 100));
   const passwordStrength = authPassword ? getPasswordStrength(authPassword) : 'weak';
 
+  // Режим технических работ: показываем экран техработ для всех, кроме администратора
+  if (siteSettings.maintenanceMode && !isAdminUser) {
+    return <MaintenanceScreen message={siteSettings.maintenanceMessage} />;
+  }
+
   return (
     <div className="min-h-screen text-slate-200 flex flex-col">
       <a
@@ -3185,6 +3196,11 @@ export default function App() {
       >
         Перейти к содержимому
       </a>
+
+      {/* Баннер-объявление над шапкой */}
+      {siteSettings.bannerEnabled && (
+        <SiteBanner text={siteSettings.bannerText} tone={siteSettings.bannerTone} />
+      )}
 
       <header className="sticky top-0 z-50 border-b border-white/[0.06] bg-slate-950/70 backdrop-blur-xl">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
