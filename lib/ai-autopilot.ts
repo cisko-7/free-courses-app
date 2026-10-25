@@ -32,11 +32,6 @@ export interface AIMessage {
   content: string;
 }
 
-/**
- * Получить API-ключ Gemini:
- * 1. Сначала проверяем env (NEXT_PUBLIC_GEMINI_API_KEY)
- * 2. Если нет, берём из защищённого хранилища админки (localStorage с префиксом)
- */
 export function getGeminiApiKey(): string | null {
   if (typeof window === 'undefined') {
     return process.env.NEXT_PUBLIC_GEMINI_API_KEY || null;
@@ -44,7 +39,6 @@ export function getGeminiApiKey(): string | null {
   return process.env.NEXT_PUBLIC_GEMINI_API_KEY || localStorage.getItem('_dc_gemini_key') || null;
 }
 
-/** Сохранить API-ключ в защищённое хранилище (админка) */
 export function setGeminiApiKey(key: string): void {
   if (typeof window !== 'undefined') {
     localStorage.setItem('_dc_gemini_key', key);
@@ -52,7 +46,7 @@ export function setGeminiApiKey(key: string): void {
 }
 
 /**
- * Отправить запрос в Gemini и получить структурированный ответ.
+ * Отправить запрос в Gemini с поддержкой нескольких моделей.
  */
 export async function callGeminiAPI(
   userMessage: string,
@@ -66,6 +60,9 @@ export async function callGeminiAPI(
 
   const messages: Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }> = [];
 
+  messages.push({ role: 'user', parts: [{ text: systemPrompt }] });
+  messages.push({ role: 'model', parts: [{ text: 'Понял. Готов помогать.' }] });
+
   for (const msg of conversationHistory) {
     messages.push({
       role: msg.role === 'assistant' ? 'model' : 'user',
@@ -73,66 +70,92 @@ export async function callGeminiAPI(
     });
   }
 
-  messages.push({
-    role: 'user',
-    parts: [{ text: userMessage }]
-  });
+  messages.push({ role: 'user', parts: [{ text: userMessage }] });
 
-  try {
-    const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        system: systemPrompt,
-        contents: messages,
-        generationConfig: {
-          temperature: 0.7,
-          topP: 0.9,
-          topK: 40,
-          maxOutputTokens: 2048,
-        },
-      }),
-      signal: AbortSignal.timeout(30000),
-    });
+  const models = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-flash-8b', 'gemini-1.5-pro'];
+  let lastError: Error | null = null;
 
-    if (!response.ok) {
-      const error = await response.json() as Record<string, unknown>;
-      throw new Error(`Gemini API: ${(error.error as Record<string, unknown>)?.message || response.statusText}`);
-    }
+  for (const model of models) {
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: messages,
+            generationConfig: {
+              temperature: 0.7,
+              topP: 0.9,
+              topK: 40,
+              maxOutputTokens: 2048,
+            },
+          }),
+          signal: AbortSignal.timeout(30000),
+        }
+      );
 
-    const data = await response.json() as Record<string, unknown>;
-    const candidates = data.candidates as Array<Record<string, unknown>> | undefined;
-    const content = candidates?.[0]?.content as Record<string, unknown> | undefined;
-    const parts = content?.parts as Array<Record<string, unknown>> | undefined;
-    const text = (parts?.[0]?.text as string) || '';
-
-    if (!text) {
-      throw new Error('Пустой ответ от Gemini API');
-    }
-
-    const actionMatch = text.match(/\[AI_ACTION:\s*(\{[\s\S]*?\})\s*\]/);
-    let action: AIAction | undefined;
-    let displayText = text;
-
-    if (actionMatch) {
-      try {
-        const actionObj = JSON.parse(actionMatch[1]) as Record<string, unknown>;
-        action = {
-          type: (actionObj.type as AIActionType) || 'NONE',
-          params: (actionObj.params as Record<string, unknown>) || {},
-          description: (actionObj.description as string) || ''
-        };
-        displayText = text.replace(actionMatch[0], '').trim();
-      } catch {
-        // Игнорируем
+      if (!response.ok) {
+        const error = await response.json() as Record<string, unknown>;
+        const msg = (error.error as Record<string, unknown>)?.message || response.statusText;
+        lastError = new Error(`${model}: ${msg}`);
+        continue;
       }
-    }
 
-    return { text: displayText, action, timestamp: new Date().toISOString() };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Неизвестная ошибка';
-    throw new Error(`Ошибка Gemini API: ${message}`);
+      const data = await response.json() as Record<string, unknown>;
+      
+      // Правильный парсинг структуры Gemini API
+      const candidates = data.candidates as Array<Record<string, unknown>> | undefined;
+      if (!candidates || candidates.length === 0) {
+        lastError = new Error('Нет кандидатов в ответе');
+        continue;
+      }
+      
+      const content = candidates[0].content as Record<string, unknown> | undefined;
+      if (!content) {
+        lastError = new Error('Нет содержимого в ответе');
+        continue;
+      }
+      
+      const parts = content.parts as Array<Record<string, unknown>> | undefined;
+      if (!parts || parts.length === 0) {
+        lastError = new Error('Нет частей в содержимом');
+        continue;
+      }
+      
+      const text = (parts[0].text as string) || '';
+
+      if (!text) {
+        lastError = new Error('Пустой текст ответа');
+        continue;
+      }
+
+      const actionMatch = text.match(/\[AI_ACTION:\s*(\{[\s\S]*?\})\s*\]/);
+      let action: AIAction | undefined;
+      let displayText = text;
+
+      if (actionMatch) {
+        try {
+          const obj = JSON.parse(actionMatch[1]) as Record<string, unknown>;
+          action = {
+            type: (obj.type as AIActionType) || 'NONE',
+            params: (obj.params as Record<string, unknown>) || {},
+            description: (obj.description as string) || ''
+          };
+          displayText = text.replace(actionMatch[0], '').trim();
+        } catch {
+          // ignore
+        }
+      }
+
+      return { text: displayText, action, timestamp: new Date().toISOString() };
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      continue;
+    }
   }
+
+  throw new Error(`Ошибка Gemini API: ${lastError?.message || 'Неизвестная ошибка'}`);
 }
 
 export const ADMIN_COMMANDER_PROMPT = `Ты – AI-ассистент админ-панели DevCourses.

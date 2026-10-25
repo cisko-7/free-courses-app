@@ -80,9 +80,11 @@ begin
   if not public.is_admin() then
     return false;
   end if;
+  -- Если ПИН не установлен — администратор автоматически верифицирован
   if not exists (select 1 from public.admin_secrets where id = 1) then
     return true;
   end if;
+  -- Если ПИН установлен, проверяем успешную верификацию за последние 30 минут
   return exists (
     select 1 from public.admin_pin_attempts
     where user_id = auth.uid()
