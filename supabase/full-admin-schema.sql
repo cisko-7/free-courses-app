@@ -37,6 +37,21 @@ create policy "admin_pin_attempts: insert own"
   with check (user_id = auth.uid());
 
 -- Шаг 4: Пересоздать функции верификации
+create or replace function public.is_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, auth
+as $$
+  select coalesce(
+    (auth.jwt() -> 'app_metadata' ->> 'role') = 'admin'
+    or
+    (auth.jwt() -> 'user_metadata' ->> 'role') = 'admin',
+    false
+  );
+$$;
+
 create or replace function public.is_admin_verified()
 returns boolean
 language plpgsql

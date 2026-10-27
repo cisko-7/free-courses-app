@@ -25,9 +25,11 @@ function parseUserRows(data: unknown): UserRow[] {
   if (!Array.isArray(data)) return [];
   return data.map((raw) => {
     const r = (raw ?? {}) as Record<string, unknown>;
+    const email = String(r.email ?? '');
+    const id = String(r.id || r.user_id || email);
     return {
-      id: String(r.id ?? ''),
-      email: String(r.email ?? ''),
+      id,
+      email,
       display_name: sanitizeText(r.display_name, LIMITS.displayName) || 'Студент',
       avatar: sanitizeText(r.avatar, LIMITS.avatar) || '👨‍💻',
       xp: Number(r.xp) || 0,
@@ -69,18 +71,24 @@ async function searchUsers(query: string): Promise<{ rows: UserRow[]; error: str
 
 /** Бан/разбан пользователя. */
 async function toggleBan(
-  userId: string,
+  user: UserRow,
   currentlyBanned: boolean,
   reason?: string
 ): Promise<{ ok: boolean; updatedRow: UserRow | null; error: string }> {
   try {
     const nextBanned = !currentlyBanned;
-    const { data, error } = await supabase
+    let query = supabase
       .from('user_accounts')
-      .update({ is_banned: nextBanned, ban_reason: nextBanned ? (reason || 'Нарушение правил') : '' })
-      .eq('id', userId)
-      .select()
-      .single();
+      .update({ is_banned: nextBanned, ban_reason: nextBanned ? (reason || 'Нарушение правил') : '' });
+
+    // Если есть валидный id (UUID), обновляем по id, иначе по email
+    if (user.id && !user.id.includes('@')) {
+      query = query.eq('id', user.id);
+    } else {
+      query = query.eq('email', user.email);
+    }
+
+    const { data, error } = await query.select().single();
     if (error) return { ok: false, updatedRow: null, error: error.message };
     if (!data) return { ok: false, updatedRow: null, error: 'RLS заблокировал операцию. Подтвердите ПИН администратора.' };
     return { ok: true, updatedRow: parseUserRows([data])[0] ?? null, error: '' };
@@ -90,14 +98,20 @@ async function toggleBan(
 }
 
 /** Изменение бонусного XP. */
-async function setBonusXp(userId: string, bonus: number): Promise<{ ok: boolean; updatedRow: UserRow | null; error: string }> {
+async function setBonusXp(user: UserRow, bonus: number): Promise<{ ok: boolean; updatedRow: UserRow | null; error: string }> {
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from('user_accounts')
-      .update({ bonus_xp: bonus })
-      .eq('id', userId)
-      .select()
-      .single();
+      .update({ bonus_xp: bonus });
+
+    // Если есть валидный id (UUID), обновляем по id, иначе по email
+    if (user.id && !user.id.includes('@')) {
+      query = query.eq('id', user.id);
+    } else {
+      query = query.eq('email', user.email);
+    }
+
+    const { data, error } = await query.select().single();
     if (error) return { ok: false, updatedRow: null, error: error.message };
     if (!data) return { ok: false, updatedRow: null, error: 'RLS заблокировал операцию. Подтвердите ПИН администратора.' };
     return { ok: true, updatedRow: parseUserRows([data])[0] ?? null, error: '' };
@@ -268,7 +282,7 @@ function AdminUsers() {
   const submitBan = useCallback(
     (user: UserRow) => {
       const reason = banReasonInput.trim() || 'Нарушение правил';
-      void toggleBan(user.id, user.is_banned, reason).then(({ ok, updatedRow, error }) => {
+      void toggleBan(user, user.is_banned, reason).then(({ ok, updatedRow, error }) => {
         if (ok) {
           setSuccessMsg(user.is_banned ? `${user.email} разбанен.` : `${user.email} забанен.`);
           setBanningId(null);
@@ -307,7 +321,7 @@ function AdminUsers() {
         setErrorMsg('Бонус XP должен быть неотрицательным.');
         return;
       }
-      void setBonusXp(user.id, val).then(({ ok, updatedRow, error }) => {
+      void setBonusXp(user, val).then(({ ok, updatedRow, error }) => {
         if (ok) {
           setSuccessMsg(`Бонус ${val} XP присвоен ${user.email}.`);
           setEditingBonusId(null);

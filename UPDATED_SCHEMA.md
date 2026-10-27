@@ -96,13 +96,20 @@ create policy "admin_pin_attempts: authenticated can insert own"
 ### Функции проверки администратора
 
 ```sql
--- Проверка, является ли текущий пользователь администратором (из app_metadata)
+-- Проверка, является ли текущий пользователь администратором (app_metadata или user_metadata)
 create or replace function public.is_admin()
 returns boolean
 language sql
 stable
+security definer
+set search_path = public, auth
 as $$
-  select coalesce((auth.jwt() -> 'app_metadata' ->> 'role') = 'admin', false);
+  select coalesce(
+    (auth.jwt() -> 'app_metadata' ->> 'role') = 'admin'
+    or
+    (auth.jwt() -> 'user_metadata' ->> 'role') = 'admin',
+    false
+  );
 $$;
 
 -- Проверка верификации администратора (ПИН или отсутствие ПИНа)
