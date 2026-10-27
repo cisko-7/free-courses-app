@@ -30,7 +30,10 @@ async function checkPinRequired(): Promise<{ required: boolean; error: string }>
     const { data, error } = await supabase.rpc('admin_pin_status');
     if (error) return { required: false, error: error.message };
     const r = (data ?? {}) as Record<string, unknown>;
-    return { required: r.is_set === true, error: '' };
+    // БД возвращает: { admin: bool, pin_set: bool, verified: bool }
+    if (r.admin !== true) return { required: false, error: 'Нет прав администратора.' };
+    // Если ПИН установлен и сессия ещё не подтверждена — запрашиваем ПИН
+    return { required: r.pin_set === true && r.verified !== true, error: '' };
   } catch {
     return { required: false, error: 'Ошибка сети.' };
   }
@@ -38,10 +41,14 @@ async function checkPinRequired(): Promise<{ required: boolean; error: string }>
 
 async function verifyPin(pin: string): Promise<{ ok: boolean; message: string }> {
   try {
-    const { data, error } = await supabase.rpc('admin_verify_pin', { pin });
+    const { data, error } = await supabase.rpc('admin_verify_pin', { pin_input: pin });
     if (error) return { ok: false, message: error.message };
-    if (data === true) return { ok: true, message: '' };
-    return { ok: false, message: 'Неверный ПИН.' };
+    const r = (data ?? {}) as Record<string, unknown>;
+    if (r.ok === true && r.verified === true) return { ok: true, message: '' };
+    const reason = typeof r.reason === 'string' ? r.reason : '';
+    if (reason === 'wrong_pin') return { ok: false, message: 'Неверный ПИН-код.' };
+    if (reason === 'not_admin') return { ok: false, message: 'Нет прав администратора.' };
+    return { ok: false, message: 'Не удалось проверить ПИН.' };
   } catch {
     return { ok: false, message: 'Ошибка сети.' };
   }

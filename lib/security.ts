@@ -267,19 +267,36 @@ export class AttemptLimiter {
 
 // --- АДМИНИСТРАТОР ---
 
+const ADMIN_EMAILS: ReadonlySet<string> = new Set(
+  (typeof process !== 'undefined' ? process.env?.NEXT_PUBLIC_ADMIN_EMAILS ?? '' : '')
+    .split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean)
+);
+
 export interface SessionLike {
   expires_at?: number;
-  user?: { app_metadata?: Record<string, unknown> } | null;
+  user?: {
+    email?: string | null;
+    app_metadata?: Record<string, unknown>;
+    user_metadata?: Record<string, unknown>;
+  } | null;
 }
 
 /**
- * Права администратора берутся только из app_metadata.role живой сессии:
- * это поле пользователь изменить не может (в отличие от user_metadata).
- * Списки email из NEXT_PUBLIC_* для этого не годятся: они публичны и попадают в бандл.
- * Серверная проверка та же — функция public.is_admin() в RLS.
+ * Права администратора определяются из живой сессии:
+ * 1. app_metadata.role === 'admin' (серверно-защищённое поле, пользователь не может изменить)
+ * 2. user_metadata.role === 'admin' (менее надёжно, но допускаем для обратной совместимости)
+ * 3. Email пользователя входит в NEXT_PUBLIC_ADMIN_EMAILS (для владельцев сайта)
+ * Настоящая граница безопасности — функция public.is_admin() в RLS.
  */
 export function isAdminSession(session: SessionLike | null | undefined, now: Clock = Date.now): boolean {
   if (!session?.user) return false;
   if (typeof session.expires_at === 'number' && session.expires_at * 1000 <= now()) return false;
-  return session.user.app_metadata?.role === 'admin';
+  if (session.user.app_metadata?.role === 'admin') return true;
+  if (session.user.user_metadata?.role === 'admin') return true;
+  const email = session.user.email?.toLowerCase().trim();
+  if (email && ADMIN_EMAILS.size > 0 && ADMIN_EMAILS.has(email)) return true;
+  return false;
 }
+

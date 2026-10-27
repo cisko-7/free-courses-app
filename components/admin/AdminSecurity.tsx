@@ -1,13 +1,14 @@
 'use client';
 
 import { memo, useCallback, useEffect, useState } from 'react';
-import { CheckCircle2, KeyRound, Lock, Unlock } from 'lucide-react';
+import { CheckCircle2, KeyRound, Lock, LogOut, Unlock } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import { dangerButton, ErrorNote, inputClass, Panel, primaryButton, SuccessNote } from './ui';
+import { dangerButton, ErrorNote, inputClass, Panel, primaryButton, secondaryButton, SuccessNote } from './ui';
 
 interface PinStatus {
-  isSet: boolean;
-  lastUsedAt: string | null;
+  admin: boolean;
+  pinSet: boolean;
+  verified: boolean;
 }
 
 async function loadPinStatus(): Promise<{ status: PinStatus | null; error: string }> {
@@ -17,8 +18,9 @@ async function loadPinStatus(): Promise<{ status: PinStatus | null; error: strin
     const r = (data ?? {}) as Record<string, unknown>;
     return {
       status: {
-        isSet: r.is_set === true,
-        lastUsedAt: typeof r.last_used_at === 'string' ? r.last_used_at : null
+        admin: r.admin === true,
+        pinSet: r.pin_set === true,
+        verified: r.verified === true
       },
       error: ''
     };
@@ -29,26 +31,31 @@ async function loadPinStatus(): Promise<{ status: PinStatus | null; error: strin
 
 async function setPin(newPin: string): Promise<{ ok: boolean; message: string }> {
   try {
-    const { data, error } = await supabase.rpc('admin_set_pin', { new_pin: newPin });
+    const { data, error } = await supabase.rpc('admin_set_pin', { pin_input: newPin });
     if (error) return { ok: false, message: error.message };
-    if (data === true) return { ok: true, message: 'ПИН-код установлен.' };
+    const r = (data ?? {}) as Record<string, unknown>;
+    if (r.ok === true && r.pin_set === true) return { ok: true, message: 'ПИН-код установлен.' };
+    const reason = typeof r.reason === 'string' ? r.reason : '';
+    if (reason === 'not_admin') return { ok: false, message: 'Нет прав администратора.' };
     return { ok: false, message: 'Не удалось установить ПИН.' };
   } catch {
     return { ok: false, message: 'Ошибка сети.' };
   }
 }
 
-async function removePin(): Promise<{ ok: boolean; message: string }> {
+async function endSession(): Promise<{ ok: boolean; message: string }> {
   try {
-    const { error } = await supabase.from('admin_secrets').delete().eq('key', 'pin_hash');
+    const { data, error } = await supabase.rpc('admin_end_session');
     if (error) return { ok: false, message: error.message };
-    return { ok: true, message: 'ПИН-код удалён.' };
+    const r = (data ?? {}) as Record<string, unknown>;
+    if (r.ok === true) return { ok: true, message: 'Админ-сессия завершена.' };
+    return { ok: false, message: 'Не удалось завершить сессию.' };
   } catch {
     return { ok: false, message: 'Ошибка сети.' };
   }
 }
 
-/** Безопасность: установка и удаление ПИН-кода для защиты админ-дашборда. */
+/** Безопасность: установка/смена ПИН-кода и завершение сессии. */
 function AdminSecurity() {
   const [status, setStatus] = useState<'loading' | 'ready' | 'working'>('loading');
   const [pinStatus, setPinStatus] = useState<PinStatus | null>(null);
@@ -81,8 +88,8 @@ function AdminSecurity() {
 
   const handleSetPin = useCallback(() => {
     const pin = newPinInput.trim();
-    if (pin.length < 8 || pin.length > 12 || !/^\d+$/.test(pin)) {
-      setErrorMsg('ПИН должен содержать 8–12 цифр.');
+    if (pin.length < 4 || pin.length > 12 || !/^\d+$/.test(pin)) {
+      setErrorMsg('ПИН должен содержать 4–12 цифр.');
       return;
     }
     if (pin !== confirmPinInput.trim()) {
@@ -105,12 +112,12 @@ function AdminSecurity() {
     });
   }, [newPinInput, confirmPinInput, loadStatus]);
 
-  const handleRemovePin = useCallback(() => {
-    if (!window.confirm('Удалить ПИН-код? Дашборд станет доступен всем администраторам без дополнительной проверки.')) return;
+  const handleEndSession = useCallback(() => {
+    if (!window.confirm('Завершить текущую админ-сессию? Для повторного входа потребуется ПИН.')) return;
     setStatus('working');
     setErrorMsg('');
     setSuccessMsg('');
-    void removePin().then(({ ok, message }) => {
+    void endSession().then(({ ok, message }) => {
       if (ok) {
         setSuccessMsg(message);
         loadStatus();
@@ -128,33 +135,73 @@ function AdminSecurity() {
       {errorMsg && <ErrorNote message={errorMsg} />}
       {successMsg && <SuccessNote message={successMsg} />}
 
-      {pinStatus?.isSet ? (
+      {pinStatus?.pinSet ? (
         <div className="space-y-3">
           <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-200 text-xs flex items-start gap-3">
             <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" aria-hidden="true" />
             <div className="space-y-1">
               <p className="font-semibold">ПИН-код установлен</p>
               <p className="text-[10px] text-emerald-300">
-                {pinStatus.lastUsedAt
-                  ? `Последний успешный вход: ${new Date(pinStatus.lastUsedAt).toLocaleString('ru-RU')}`
-                  : 'ПИН пока не использовался.'}
+                {pinStatus.verified
+                  ? 'Сессия подтверждена (действует 30 минут).'
+                  : 'Сессия не подтверждена — необходим ПИН для доступа.'}
               </p>
             </div>
           </div>
-          <button type="button" onClick={handleRemovePin} disabled={status === 'working'} className={dangerButton}>
-            <Unlock className="w-4 h-4" aria-hidden="true" />
-            Удалить ПИН
-          </button>
+
+          {/* Форма смены ПИН-кода */}
+          <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
+            <p className="text-xs text-slate-400 font-semibold">Сменить ПИН-код</p>
+            <div className="space-y-2">
+              <label htmlFor="new-pin-change" className="block text-xs font-semibold text-slate-400">
+                Новый ПИН (4–12 цифр)
+              </label>
+              <input
+                id="new-pin-change"
+                type="password"
+                inputMode="numeric"
+                value={newPinInput}
+                onChange={(e) => setNewPinInput(e.target.value)}
+                placeholder="••••"
+                className={inputClass}
+              />
+            </div>
+            <div className="space-y-2">
+              <label htmlFor="confirm-pin-change" className="block text-xs font-semibold text-slate-400">
+                Повторите ПИН
+              </label>
+              <input
+                id="confirm-pin-change"
+                type="password"
+                inputMode="numeric"
+                value={confirmPinInput}
+                onChange={(e) => setConfirmPinInput(e.target.value)}
+                placeholder="••••"
+                className={inputClass}
+              />
+            </div>
+            <button type="button" onClick={handleSetPin} disabled={status === 'working'} className={primaryButton}>
+              <KeyRound className="w-4 h-4" aria-hidden="true" />
+              Сменить ПИН
+            </button>
+          </div>
+
+          <div className="flex gap-2">
+            <button type="button" onClick={handleEndSession} disabled={status === 'working'} className={dangerButton}>
+              <LogOut className="w-4 h-4" aria-hidden="true" />
+              Завершить сессию
+            </button>
+          </div>
         </div>
       ) : (
         <div className="space-y-4">
           <p className="text-xs text-slate-400">
-            Установите ПИН-код (8–12 цифр), чтобы защитить админ-дашборд. Без ПИНа доступ есть у всех пользователей с ролью admin.
+            Установите ПИН-код (4–12 цифр), чтобы защитить админ-дашборд. Без ПИНа доступ есть у всех пользователей с ролью admin.
           </p>
           <div className="space-y-3">
             <div className="space-y-2">
               <label htmlFor="new-pin" className="block text-xs font-semibold text-slate-400">
-                Новый ПИН (8–12 цифр)
+                Новый ПИН (4–12 цифр)
               </label>
               <input
                 id="new-pin"
@@ -162,7 +209,7 @@ function AdminSecurity() {
                 inputMode="numeric"
                 value={newPinInput}
                 onChange={(e) => setNewPinInput(e.target.value)}
-                placeholder="12345678"
+                placeholder="••••"
                 className={inputClass}
               />
             </div>
@@ -176,7 +223,7 @@ function AdminSecurity() {
                 inputMode="numeric"
                 value={confirmPinInput}
                 onChange={(e) => setConfirmPinInput(e.target.value)}
-                placeholder="12345678"
+                placeholder="••••"
                 className={inputClass}
               />
             </div>
@@ -192,4 +239,3 @@ function AdminSecurity() {
 }
 
 export default memo(AdminSecurity);
-

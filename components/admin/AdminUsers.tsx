@@ -4,6 +4,7 @@ import { memo, useCallback, useState } from 'react';
 import { Ban, CheckCircle2, Coins, Save, Search, ShieldAlert, UserCheck, Users as UsersIcon } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { sanitizeSearchQuery, sanitizeText, LIMITS } from '@/lib/security';
+import { logAdminAction } from '@/lib/audit-log';
 import { dangerButton, ErrorNote, inputClass, Loading, Panel, primaryButton, secondaryButton, SuccessNote } from './ui';
 
 interface UserRow {
@@ -66,33 +67,42 @@ async function searchUsers(query: string): Promise<{ rows: UserRow[]; error: str
   }
 }
 
-/** Бан/разбан (запись в audit_log создаёт триггер БД). */
+/** Бан/разбан пользователя. */
 async function toggleBan(
   userId: string,
-  email: string,
   currentlyBanned: boolean,
   reason?: string
-): Promise<{ ok: boolean; error: string }> {
+): Promise<{ ok: boolean; updatedRow: UserRow | null; error: string }> {
   try {
-    const { error } = await supabase
+    const nextBanned = !currentlyBanned;
+    const { data, error } = await supabase
       .from('user_accounts')
-      .update({ is_banned: !currentlyBanned, ban_reason: currentlyBanned ? '' : reason || 'Нарушение правил' })
-      .eq('id', userId);
-    if (error) return { ok: false, error: error.message };
-    return { ok: true, error: '' };
+      .update({ is_banned: nextBanned, ban_reason: nextBanned ? (reason || 'Нарушение правил') : '' })
+      .eq('id', userId)
+      .select()
+      .single();
+    if (error) return { ok: false, updatedRow: null, error: error.message };
+    if (!data) return { ok: false, updatedRow: null, error: 'RLS заблокировал операцию. Подтвердите ПИН администратора.' };
+    return { ok: true, updatedRow: parseUserRows([data])[0] ?? null, error: '' };
   } catch {
-    return { ok: false, error: 'Ошибка сети.' };
+    return { ok: false, updatedRow: null, error: 'Ошибка сети.' };
   }
 }
 
-/** Изменение бонусного XP (запись в audit_log создаёт триггер БД). */
-async function setBonusXp(userId: string, email: string, bonus: number): Promise<{ ok: boolean; error: string }> {
+/** Изменение бонусного XP. */
+async function setBonusXp(userId: string, bonus: number): Promise<{ ok: boolean; updatedRow: UserRow | null; error: string }> {
   try {
-    const { error } = await supabase.from('user_accounts').update({ bonus_xp: bonus }).eq('id', userId);
-    if (error) return { ok: false, error: error.message };
-    return { ok: true, error: '' };
+    const { data, error } = await supabase
+      .from('user_accounts')
+      .update({ bonus_xp: bonus })
+      .eq('id', userId)
+      .select()
+      .single();
+    if (error) return { ok: false, updatedRow: null, error: error.message };
+    if (!data) return { ok: false, updatedRow: null, error: 'RLS заблокировал операцию. Подтвердите ПИН администратора.' };
+    return { ok: true, updatedRow: parseUserRows([data])[0] ?? null, error: '' };
   } catch {
-    return { ok: false, error: 'Ошибка сети.' };
+    return { ok: false, updatedRow: null, error: 'Ошибка сети.' };
   }
 }
 
@@ -258,11 +268,20 @@ function AdminUsers() {
   const submitBan = useCallback(
     (user: UserRow) => {
       const reason = banReasonInput.trim() || 'Нарушение правил';
-      void toggleBan(user.id, user.email, user.is_banned, reason).then(({ ok, error }) => {
+      void toggleBan(user.id, user.is_banned, reason).then(({ ok, updatedRow, error }) => {
         if (ok) {
           setSuccessMsg(user.is_banned ? `${user.email} разбанен.` : `${user.email} забанен.`);
           setBanningId(null);
-          doSearch();
+          // Обновляем локальный стейт без повторного запроса
+          if (updatedRow) {
+            setRows((prev) => prev.map((r) => (r.id === user.id ? updatedRow : r)));
+          } else {
+            doSearch();
+          }
+          void logAdminAction(supabase, user.is_banned ? 'admin.logout' : 'admin.login', user.email, {
+            action: user.is_banned ? 'unban' : 'ban',
+            reason
+          });
         } else {
           setErrorMsg(error);
         }
@@ -288,11 +307,20 @@ function AdminUsers() {
         setErrorMsg('Бонус XP должен быть неотрицательным.');
         return;
       }
-      void setBonusXp(user.id, user.email, val).then(({ ok, error }) => {
+      void setBonusXp(user.id, val).then(({ ok, updatedRow, error }) => {
         if (ok) {
           setSuccessMsg(`Бонус ${val} XP присвоен ${user.email}.`);
           setEditingBonusId(null);
-          doSearch();
+          // Обновляем локальный стейт
+          if (updatedRow) {
+            setRows((prev) => prev.map((r) => (r.id === user.id ? updatedRow : r)));
+          } else {
+            doSearch();
+          }
+          void logAdminAction(supabase, 'admin.login', user.email, {
+            action: 'bonus_xp',
+            bonus_xp: val
+          });
         } else {
           setErrorMsg(error);
         }
