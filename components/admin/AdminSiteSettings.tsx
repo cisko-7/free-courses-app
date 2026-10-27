@@ -1,10 +1,26 @@
 'use client';
 
 import { memo, useCallback, useEffect, useState } from 'react';
-import { Save, Settings } from 'lucide-react';
+import { RotateCcw, Save, Settings } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import { fetchSiteSettings, saveSiteSettings, type SiteSettings } from '@/lib/site-settings';
-import { ErrorNote, inputClass, Loading, Panel, primaryButton, SuccessNote, Toggle } from './ui';
+import {
+  clearSiteSettingsCache,
+  fetchSiteSettings,
+  saveSiteSettings,
+  type SiteSettings
+} from '@/lib/site-settings';
+import { refreshSiteSettings, setSiteSettingsLocal } from '@/hooks/useSiteSettings';
+import { dangerButton, ErrorNote, inputClass, Loading, Panel, primaryButton, SuccessNote, Toggle } from './ui';
+
+/** Активна ли сессия Supabase прямо сейчас. */
+async function hasSession(): Promise<boolean> {
+  try {
+    const { data } = await supabase.auth.getSession();
+    return Boolean(data.session);
+  } catch {
+    return false;
+  }
+}
 
 const TONE_OPTIONS: Array<{ value: SiteSettings['bannerTone']; label: string }> = [
   { value: 'info', label: 'Инфо (синий)' },
@@ -37,14 +53,54 @@ function AdminSiteSettings() {
     setStatus('saving');
     setErrorMsg('');
     setSuccessMsg('');
-    void saveSiteSettings(supabase, settings).then((error) => {
-      if (error) {
+    void hasSession().then((active) => {
+      if (!active) {
         setStatus('error');
-        setErrorMsg(error);
-      } else {
-        setStatus('ready');
-        setSuccessMsg('Настройки сохранены.');
+        setErrorMsg('Сессия истекла. Пожалуйста, войдите в аккаунт администратора заново.');
+        return;
       }
+      void saveSiteSettings(supabase, settings).then((error) => {
+        if (error) {
+          setStatus('error');
+          setErrorMsg(error);
+        } else {
+          setStatus('ready');
+          setSuccessMsg('Настройки сохранены.');
+          // Применяем мгновенно на клиенте и перечитываем с сервера
+          setSiteSettingsLocal(settings);
+          void refreshSiteSettings();
+        }
+      });
+    });
+  }, [settings]);
+
+  /** Экстренно выключает техработы и очищает локальный кэш настроек. */
+  const handleEmergencyReset = useCallback(() => {
+    if (!settings) return;
+    const next: SiteSettings = { ...settings, maintenanceMode: false };
+    setStatus('saving');
+    setErrorMsg('');
+    setSuccessMsg('');
+    // Сразу чистим кэш и применяем локально — тумблер мгновенно отпускает клиент
+    clearSiteSettingsCache();
+    setSettings(next);
+    setSiteSettingsLocal(next);
+    void hasSession().then((active) => {
+      if (!active) {
+        setStatus('error');
+        setErrorMsg('Сессия истекла. Пожалуйста, войдите в аккаунт администратора заново.');
+        return;
+      }
+      void saveSiteSettings(supabase, next).then((error) => {
+        if (error) {
+          setStatus('error');
+          setErrorMsg(error);
+        } else {
+          setStatus('ready');
+          setSuccessMsg('Техработы экстренно отключены, локальный кэш очищен.');
+          void refreshSiteSettings();
+        }
+      });
     });
   }, [settings]);
 
@@ -87,6 +143,16 @@ function AdminSiteSettings() {
             />
           </div>
         )}
+
+        <div className="flex flex-wrap items-center gap-3">
+          <button type="button" onClick={handleEmergencyReset} disabled={status === 'saving'} className={dangerButton}>
+            <RotateCcw className="w-4 h-4" aria-hidden="true" />
+            🔄 Сбросить техработы экстренно
+          </button>
+          <span className="text-xs text-slate-500">
+            Принудительно выключает режим техработ и очищает локальный кэш настроек.
+          </span>
+        </div>
 
         <hr className="border-slate-800" />
 

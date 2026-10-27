@@ -39,7 +39,14 @@ export const SITE_SETTINGS_CACHE_KEY = 'dc_site_settings';
 const COLUMNS =
   'maintenance_mode, maintenance_message, read_only, registration_open, banner_enabled, banner_text, banner_tone, updated_at';
 
-type Client = Pick<SupabaseClient, 'from'>;
+/** Клиенту нужен доступ к таблицам (from), RPC-функциям (rpc) и сессии (auth). */
+type Client = Pick<SupabaseClient, 'from' | 'rpc' | 'auth'>;
+
+/** Минимальная форма ошибки Supabase/PostgREST. */
+interface SupabaseError {
+  code?: string | null;
+  message?: string | null;
+}
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
@@ -94,13 +101,102 @@ export async function fetchSiteSettings(client: Client): Promise<SiteSettings | 
   }
 }
 
-/** Сохраняет настройки. Возвращает текст ошибки или null. */
-export async function saveSiteSettings(client: Client, settings: SiteSettings): Promise<string | null> {
+/** Признак ошибки «нет прав» (RLS/GRANT): PostgreSQL код 42501 или текст permission denied. */
+function isPermissionError(err: SupabaseError | null | undefined): boolean {
+  if (!err) return false;
+  if (err.code === '42501') return true;
+  return /permission denied|insufficient privilege/i.test(err.message ?? '');
+}
+
+/** Сохраняет настройки в кэш localStorage (camelCase), чтобы клиент применил их мгновенно. */
+export function cacheSiteSettings(settings: SiteSettings): void {
+  if (typeof window === 'undefined') return;
   try {
-    const { data, error } = await client.from('site_settings').update(toSettingsRow(settings)).eq('id', 1).select('id');
-    if (error) return error.message;
+    window.localStorage.setItem(SITE_SETTINGS_CACHE_KEY, JSON.stringify(parseSiteSettings(settings)));
+  } catch {
+    /* localStorage может быть недоступен (инкогнито, переполнение) */
+  }
+}
+
+/** Полностью очищает кэш настроек сайта (для экстренного сброса техработ). */
+export function clearSiteSettingsCache(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(SITE_SETTINGS_CACHE_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Активна ли сейчас сессия Supabase. При ошибке считаем, что сессии нет. */
+async function hasActiveSession(client: Client): Promise<boolean> {
+  try {
+    const { data } = await client.auth.getSession();
+    return Boolean(data?.session);
+  } catch {
+    return false;
+  }
+}
+
+const SESSION_EXPIRED_MSG = 'Сессия истекла. Пожалуйста, войдите в аккаунт администратора заново.';
+
+/**
+ * Сохраняет настройки. Возвращает текст ошибки или null.
+ * Порядок: RPC admin_save_site_settings (SECURITY DEFINER, обходит RLS) →
+ * при отсутствии RPC в БД fallback на upsert таблицы site_settings.
+ * При permission denied / 42501 проверяем сессию и подсказываем войти заново.
+ * Успешное сохранение дублируется в localStorage, чтобы тумблеры применялись сразу.
+ */
+export async function saveSiteSettings(client: Client, settings: SiteSettings): Promise<string | null> {
+  const row = toSettingsRow(settings);
+
+  // 1. Пытаемся через RPC с SECURITY DEFINER — он не зависит от табличных GRANT/RLS.
+  try {
+    const { error } = await client.rpc('admin_save_site_settings', { payload: row });
+    if (!error) {
+      cacheSiteSettings(settings);
+      return null;
+    }
+    // RPC ещё не создана в БД (PGRST202 / undefined function 42883) — переходим к fallback.
+    const rpcMissing =
+      error.code === 'PGRST202' ||
+      error.code === '42883' ||
+      /could not find the function|does not exist|not found/i.test(error.message ?? '');
+    if (!rpcMissing) {
+      if (isPermissionError(error)) {
+        return (await hasActiveSession(client))
+          ? 'Нет прав на изменение настроек (подтвердите ПИН администратора).'
+          : SESSION_EXPIRED_MSG;
+      }
+      if (/DC_FORBIDDEN|требуется вход администратора/i.test(error.message ?? '')) {
+        return (await hasActiveSession(client))
+          ? 'Нет прав на изменение настроек (подтвердите ПИН администратора).'
+          : SESSION_EXPIRED_MSG;
+      }
+      return error.message ?? 'Не удалось сохранить настройки.';
+    }
+  } catch {
+    /* сеть/клиент упали на RPC — пробуем прямой upsert ниже */
+  }
+
+  // 2. Fallback: upsert единственной строки (id = 1).
+  try {
+    const { data, error } = await client
+      .from('site_settings')
+      .upsert([{ id: 1, ...row }], { onConflict: 'id' })
+      .select('id');
+
+    if (error) {
+      if (isPermissionError(error)) {
+        return (await hasActiveSession(client)) ? 'Нет прав на изменение настроек (подтвердите ПИН администратора).' : SESSION_EXPIRED_MSG;
+      }
+      return error.message;
+    }
     // RLS молча отфильтровывает строку, если нет прав: UPDATE «проходит», но меняет 0 строк
-    if (!Array.isArray(data) || data.length === 0) return 'Нет прав на изменение настроек (подтвердите ПИН администратора).';
+    if (!Array.isArray(data) || data.length === 0) {
+      return (await hasActiveSession(client)) ? 'Нет прав на изменение настроек (подтвердите ПИН администратора).' : SESSION_EXPIRED_MSG;
+    }
+    cacheSiteSettings(settings);
     return null;
   } catch (err) {
     return err instanceof Error ? err.message : 'Не удалось сохранить настройки.';

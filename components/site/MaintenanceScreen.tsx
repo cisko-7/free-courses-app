@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { RefreshCw, Wrench } from 'lucide-react';
+import { KeyRound, RefreshCw, Wrench } from 'lucide-react';
 
 interface MaintenanceScreenProps {
   message: string;
@@ -34,9 +34,19 @@ export default function MaintenanceScreen({ message }: MaintenanceScreenProps) {
           <RefreshCw className="w-4 h-4" aria-hidden="true" />
           Обновить страницу
         </button>
-        <Link href="/admin" className="block text-xs text-slate-500 hover:text-slate-300">
-          Вход для администратора
-        </Link>
+
+        <div className="pt-2 border-t border-slate-800">
+          <Link
+            href="/admin"
+            className="mt-4 w-full py-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-100 font-semibold text-sm flex items-center justify-center gap-2 transition-colors"
+          >
+            <KeyRound className="w-4 h-4" aria-hidden="true" />
+            🔐 Вход для администратора
+          </Link>
+          <p className="mt-2 text-xs text-slate-600">
+            Панель администратора доступна даже во время технических работ.
+          </p>
+        </div>
       </section>
     </main>
   );

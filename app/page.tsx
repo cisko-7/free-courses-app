@@ -104,6 +104,7 @@ import {
   type CommunitySolution,
   type SolutionSort
 } from '@/lib/community-solutions';
+import { isAdminSession } from '@/lib/security';
 import { useSiteSettings } from '@/hooks/useSiteSettings';
 import MaintenanceScreen from '@/components/site/MaintenanceScreen';
 import SiteBanner from '@/components/site/SiteBanner';
@@ -2401,8 +2402,10 @@ export default function App() {
   // поэтому здесь только обновление состояния.
   useEffect(() => {
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
-      // Роль администратора (только для показа ссылки; реальная защита — RLS в Supabase)
-      setIsAdminUser(session?.user?.app_metadata?.role === 'admin');
+      // Роль администратора (только для показа ссылки и обхода экрана техработ;
+      // реальная защита — RLS в Supabase). isAdminSession учитывает app_metadata,
+      // user_metadata и NEXT_PUBLIC_ADMIN_EMAILS, поэтому админ по email тоже разблокирует сайт.
+      setIsAdminUser(isAdminSession(session));
 
       if (event === 'PASSWORD_RECOVERY') {
         // Пользователь пришёл по ссылке из письма «сбросить пароль»
