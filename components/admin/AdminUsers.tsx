@@ -69,55 +69,119 @@ async function searchUsers(query: string): Promise<{ rows: UserRow[]; error: str
   }
 }
 
-/** Бан/разбан пользователя. */
-async function toggleBan(
-  user: UserRow,
-  currentlyBanned: boolean,
-  reason?: string
+/** Минимальная форма ошибки Supabase/PostgREST. */
+interface QueryError {
+  code?: string | null;
+  message?: string | null;
+}
+
+const RLS_BLOCKED_MSG = 'RLS заблокировал операцию. Подтвердите ПИН администратора.';
+
+/** RPC-функции ещё нет в БД (старый проект) — переходим на прямой update. */
+function isRpcMissing(error: QueryError): boolean {
+  return (
+    error.code === 'PGRST202' ||
+    error.code === '42883' ||
+    /could not find the function|does not exist|not found/i.test(error.message ?? '')
+  );
+}
+
+/**
+ * Прямой update строки профиля по email (email уникален и есть в любой версии схемы).
+ * Намеренно НЕ используем колонку id: в старой БД её могло не быть
+ * (ошибка «column user_accounts.id does not exist»).
+ */
+async function updateByEmail(
+  email: string,
+  patch: Record<string, unknown>
 ): Promise<{ ok: boolean; updatedRow: UserRow | null; error: string }> {
   try {
-    const nextBanned = !currentlyBanned;
-    let query = supabase
-      .from('user_accounts')
-      .update({ is_banned: nextBanned, ban_reason: nextBanned ? (reason || 'Нарушение правил') : '' });
-
-    // Если есть валидный id (UUID), обновляем по id, иначе по email
-    if (user.id && !user.id.includes('@')) {
-      query = query.eq('id', user.id);
-    } else {
-      query = query.eq('email', user.email);
-    }
-
-    const { data, error } = await query.select().single();
+    const { data, error } = await supabase.from('user_accounts').update(patch).eq('email', email).select().maybeSingle();
     if (error) return { ok: false, updatedRow: null, error: error.message };
-    if (!data) return { ok: false, updatedRow: null, error: 'RLS заблокировал операцию. Подтвердите ПИН администратора.' };
+    if (!data) return { ok: false, updatedRow: null, error: RLS_BLOCKED_MSG };
     return { ok: true, updatedRow: parseUserRows([data])[0] ?? null, error: '' };
   } catch {
     return { ok: false, updatedRow: null, error: 'Ошибка сети.' };
   }
 }
 
-/** Изменение бонусного XP. */
+/**
+ * Бан/разбан пользователя.
+ * Сначала RPC admin_ban_user (SECURITY DEFINER, обходит RLS и не зависит от колонки id),
+ * при отсутствии RPC в БД — прямой update по email.
+ */
+async function toggleBan(
+  user: UserRow,
+  currentlyBanned: boolean,
+  reason?: string
+): Promise<{ ok: boolean; updatedRow: UserRow | null; error: string }> {
+  const nextBanned = !currentlyBanned;
+  const banReason = nextBanned ? (reason || 'Нарушение правил') : '';
+
+  try {
+    const { data, error } = await supabase.rpc('admin_ban_user', {
+      target_email: user.email,
+      banned: nextBanned,
+      reason: banReason
+    });
+    if (!error) {
+      const updatedRow = parseUserRows([data])[0] ?? { ...user, is_banned: nextBanned, ban_reason: banReason };
+      return { ok: true, updatedRow, error: '' };
+    }
+    if (!isRpcMissing(error)) return { ok: false, updatedRow: null, error: error.message };
+  } catch {
+    /* сеть/клиент упали на RPC — пробуем прямой update ниже */
+  }
+
+  return updateByEmail(user.email, { is_banned: nextBanned, ban_reason: banReason });
+}
+
+/**
+ * Изменение бонусного XP.
+ * Сначала RPC admin_set_bonus_xp (SECURITY DEFINER), при её отсутствии — update по email.
+ */
 async function setBonusXp(user: UserRow, bonus: number): Promise<{ ok: boolean; updatedRow: UserRow | null; error: string }> {
   try {
-    let query = supabase
-      .from('user_accounts')
-      .update({ bonus_xp: bonus });
-
-    // Если есть валидный id (UUID), обновляем по id, иначе по email
-    if (user.id && !user.id.includes('@')) {
-      query = query.eq('id', user.id);
-    } else {
-      query = query.eq('email', user.email);
+    const { data, error } = await supabase.rpc('admin_set_bonus_xp', {
+      target_email: user.email,
+      bonus
+    });
+    if (!error) {
+      const updatedRow = parseUserRows([data])[0] ?? { ...user, bonus_xp: bonus };
+      return { ok: true, updatedRow, error: '' };
     }
-
-    const { data, error } = await query.select().single();
-    if (error) return { ok: false, updatedRow: null, error: error.message };
-    if (!data) return { ok: false, updatedRow: null, error: 'RLS заблокировал операцию. Подтвердите ПИН администратора.' };
-    return { ok: true, updatedRow: parseUserRows([data])[0] ?? null, error: '' };
+    if (!isRpcMissing(error)) return { ok: false, updatedRow: null, error: error.message };
   } catch {
-    return { ok: false, updatedRow: null, error: 'Ошибка сети.' };
+    /* fallback ниже */
   }
+
+  return updateByEmail(user.email, { bonus_xp: bonus });
+}
+
+/**
+ * Смена роли пользователя (admin / student).
+ * Сначала RPC admin_set_user_role (SECURITY DEFINER), при её отсутствии — update по email.
+ * В БД роль хранится как 'student' | 'admin' (ограничение user_accounts_role_check).
+ */
+async function changeRole(
+  user: UserRow,
+  nextDbRole: 'admin' | 'student'
+): Promise<{ ok: boolean; updatedRow: UserRow | null; error: string }> {
+  try {
+    const { data, error } = await supabase.rpc('admin_set_user_role', {
+      target_email: user.email,
+      new_role: nextDbRole
+    });
+    if (!error) {
+      const updatedRow = parseUserRows([data])[0] ?? { ...user, role: nextDbRole === 'admin' ? 'admin' : 'user' };
+      return { ok: true, updatedRow, error: '' };
+    }
+    if (!isRpcMissing(error)) return { ok: false, updatedRow: null, error: error.message };
+  } catch {
+    /* fallback ниже */
+  }
+
+  return updateByEmail(user.email, { role: nextDbRole });
 }
 
 interface UserCardProps {
@@ -134,6 +198,7 @@ interface UserCardProps {
   onBonusClick: (u: UserRow) => void;
   onSubmitBonus: (u: UserRow) => void;
   onCancelBonus: () => void;
+  onToggleRole: (u: UserRow) => void;
 }
 
 function UserCard({
@@ -149,7 +214,8 @@ function UserCard({
   onCancelBan,
   onBonusClick,
   onSubmitBonus,
-  onCancelBonus
+  onCancelBonus,
+  onToggleRole
 }: UserCardProps) {
   return (
     <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
@@ -237,6 +303,10 @@ function UserCard({
           <button type="button" onClick={() => onBonusClick(user)} className={secondaryButton}>
             <Coins className="w-3.5 h-3.5" aria-hidden="true" />
             Бонус XP ({user.bonus_xp})
+          </button>
+          <button type="button" onClick={() => onToggleRole(user)} className={secondaryButton}>
+            <UserCheck className="w-3.5 h-3.5" aria-hidden="true" />
+            {user.role === 'admin' ? 'Снять админа' : 'Назначить админом'}
           </button>
         </div>
       )}
@@ -348,6 +418,28 @@ function AdminUsers() {
     setBonusInput('');
   }, []);
 
+  const handleToggleRole = useCallback(
+    (user: UserRow) => {
+      const nextDbRole: 'admin' | 'student' = user.role === 'admin' ? 'student' : 'admin';
+      void changeRole(user, nextDbRole).then(({ ok, updatedRow, error }) => {
+        if (ok) {
+          setSuccessMsg(
+            nextDbRole === 'admin' ? `${user.email} назначен администратором.` : `С ${user.email} снята роль администратора.`
+          );
+          if (updatedRow) {
+            setRows((prev) => prev.map((r) => (r.email === user.email ? updatedRow : r)));
+          } else {
+            doSearch();
+          }
+          void logAdminAction(supabase, 'admin.login', user.email, { action: 'role', role: nextDbRole });
+        } else {
+          setErrorMsg(error);
+        }
+      });
+    },
+    [doSearch]
+  );
+
   return (
     <Panel title="Управление пользователями" icon={<UsersIcon className="w-4 h-4 text-blue-400" />}>
       <div className="flex flex-col sm:flex-row gap-3">
@@ -388,6 +480,7 @@ function AdminUsers() {
               onBonusClick={handleBonus}
               onSubmitBonus={submitBonus}
               onCancelBonus={cancelBonus}
+              onToggleRole={handleToggleRole}
             />
           ))}
         </div>

@@ -46,7 +46,7 @@ export function setGeminiApiKey(key: string): void {
 }
 
 /**
- * Отправить запрос в Gemini с поддержкой нескольких моделей.
+ * Отправить запрос в Gemini с поддержкой актуальных моделей.
  */
 export async function callGeminiAPI(
   userMessage: string,
@@ -72,7 +72,8 @@ export async function callGeminiAPI(
 
   messages.push({ role: 'user', parts: [{ text: userMessage }] });
 
-  const models = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-flash-8b', 'gemini-1.5-pro'];
+  // Актуальные модели Gemini в приоритетном порядке
+  const models = ['gemini-2.5-flash', 'gemini-2.0-flash-exp', 'gemini-1.5-flash', 'gemini-1.5-pro'];
   let lastError: Error | null = null;
 
   for (const model of models) {
@@ -104,7 +105,6 @@ export async function callGeminiAPI(
 
       const data = await response.json() as Record<string, unknown>;
       
-      // Правильный парсинг структуры Gemini API
       const candidates = data.candidates as Array<Record<string, unknown>> | undefined;
       if (!candidates || candidates.length === 0) {
         lastError = new Error('Нет кандидатов в ответе');
